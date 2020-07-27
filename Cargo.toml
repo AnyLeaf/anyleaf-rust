@@ -1,0 +1,29 @@
+[package]
+name = "anyleaf"
+version = "0.1.7"
+authors = ["Anyleaf <david.alan.oconnor@gmail.com>"]
+edition = "2018"
+description = "Driver for the AnyLeaf pH sensor"
+keywords = ["scientific", "measurement", "ph", "anyleaf"]
+homepage = "https://github.com/anyleaf/anyleaf_ph"
+categories = ["embedded", "science"]
+readme = "README.md"
+license = "MIT"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+embedded-hal = {version = "0.2.4", features = ["unproven"]}
+# We use our custom version due to its better addressing system, and
+# ability to free the I2C peripheral.
+
+ads1x1x = "0.2.1"
+nb = "0.1.2" # ADC
+
+filter = { version = "0.2.0", default-features = false }
+# `num-traits` is required by filter, but we need to disable features on it manually.
+# `libm` feature is for float rounding on no_std
+num-traits = { version = "0.2.11", default-features = false, features=["libm"] }
+# `nalgebra` For Kalman filtering, as a requirement for `filter`.
+# Pinning to the version used by `filter`, to avoid conflicting Trait requirements.
+nalgebra = { version = "0.21.0", default-features = false }
