@@ -72,9 +72,11 @@ use ads1x1x::{
     interface::I2cInterface,
     Ads1x1x, SlaveAddr,
 };
+use max31865::{Max31865, SensorType, FilterMode};
 use embedded_hal::{
     adc::OneShot,
     blocking::i2c::{Read, Write, WriteRead},
+    digital::v2::{InputPin, OutputPin},
 };
 use filter::kalman::kalman_filter::KalmanFilter;
 use nalgebra::{
@@ -674,6 +676,34 @@ impl<I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>, E> WaterMon
         if self.orp_ec.adc.is_none() {
             self.orp_ec.unfree(self.ph_temp.free());
         }
+    }
+}
+
+pub struct Rtd<SPI: Read<u8>> {
+    sensor: Max31865,
+    cal_1: CalPt,
+    // cal_2: CalPt,
+    // cal_3: Option<CalPt>,
+}
+
+impl <SPI: Read<u8>, O: OutputPin, I: InputPin> Rtd<SPI> {
+    pub fn new(spi: SPI, nss: O, rdy: I) {
+        let mut max31865 = Max31865::new(spi1, nss, rdy).unwrap();
+        max31865.set_calibration(43234).unwrap();
+        max31865.configure(true, true, false, SensorType::ThreeWire, FilterMode::Filter50Hz).unwrap();
+    }
+
+    /// Measure temperature, in Celsius
+    pub fn read(&mut self) -> f32 {
+        max31865.read_default_conversion().unwrap() / 100.
+    }
+
+    /// Measure temperature, in Celsius
+    /// (From driver notes:   You can perform calibration by putting the sensor in boiling (100 degrees
+    /// Celcius) water and then measuring the raw value using `read_raw`. Calculate
+    /// `calib` as `(13851 << 15) / raw >> 1`.
+    pub fn calibrate(&mut self) -> f32 {
+        let reading = self.sensor.read_raw();
     }
 }
 

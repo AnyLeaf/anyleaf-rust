@@ -20,6 +20,8 @@ embedded-hal = {version = "0.2.4", features = ["unproven"]}
 ads1x1x = "0.2.1"
 nb = "0.1.2" # ADC
 
+max31865 = "0.1.0" # RTD IC
+
 filter = { version = "0.2.0", default-features = false }
 # `num-traits` is required by filter, but we need to disable features on it manually.
 # `libm` feature is for float rounding on no_std
