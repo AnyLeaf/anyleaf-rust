@@ -138,7 +138,7 @@ fn main() -> ! {
         CalPt::new(0., 7., 25.), CalPt::new(0.17, 4., 25.), Some(CalPt::new(-0.18, 10., 25.))
     );
 
-    // See `linux` example for the automatic calibration method.
+    ph_linux
 
     loop {
         let pH = ph_sensor.read(TempSource::OffBoard(20.)).unwrap();

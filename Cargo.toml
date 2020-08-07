@@ -20,12 +20,15 @@ embedded-hal = {version = "0.2.4", features = ["unproven"]}
 ads1x1x = "0.2.1"
 nb = "0.1.2" # ADC
 
-max31865 = "0.1.0" # RTD IC
+#max31865 = "0.1.0" # RTD IC
+# We use a custom max driver so we can borrow SPI instead of owning it.
+#max31865 = { git = "https://github.com/david-oconnor/max31865", branch = "borrow-spi"}
+max31865 = { path = "../../max31865"}
 
 filter = { version = "0.2.0", default-features = false }
 # `num-traits` is required by filter, but we need to disable features on it manually.
 # `libm` feature is for float rounding on no_std
-num-traits = { version = "0.2.11", default-features = false, features=["libm"] }
+num-traits = { version = "0.2.11", default-features = false, features = ["libm"] }
 # `nalgebra` For Kalman filtering, as a requirement for `filter`.
 # Pinning to the version used by `filter`, to avoid conflicting Trait requirements.
 nalgebra = { version = "0.21.0", default-features = false }

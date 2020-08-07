@@ -1,4 +1,4 @@
-//! This example demonstrates how to measure temperature
+//! This example demonstrates how to measure pH
 //! using Rust on Linux
 
 use embedded_hal::blocking::delay::DelayMs;

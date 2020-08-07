@@ -3,7 +3,7 @@
 //! [Github repository](https://github.com/anyleaf/ph-rust) for
 //! complete examples on the Rasperry Pi and stm32f3.
 //!
-//! Example for Rasperry Pi, and other linux systems:
+//! Example for Rasperry Pi, and other ph_linux systems:
 //! Cargo.toml:
 //! ```toml
 //! [package]
@@ -14,7 +14,7 @@
 //!
 //! [dependencies]
 //! embedded-hal = "^0.2.3"
-//! linux-embedded-hal = "^0.3.0"
+//! ph_linux-embedded-hal = "^0.3.0"
 //! anyleaf = "^0.1.6"
 //! ```
 //!
@@ -72,7 +72,6 @@ use ads1x1x::{
     interface::I2cInterface,
     Ads1x1x, SlaveAddr,
 };
-use max31865::{Max31865, SensorType, FilterMode};
 use embedded_hal::{
     adc::OneShot,
     blocking::i2c::{Read, Write, WriteRead},
@@ -80,6 +79,7 @@ use embedded_hal::{
     digital::v2::{InputPin, OutputPin},
 };
 use filter::kalman::kalman_filter::KalmanFilter;
+use max31865::{FilterMode, Max31865, SensorType};
 use nalgebra::{
     dimension::{U1, U2},
     Vector1,
@@ -143,7 +143,7 @@ pub struct CalPtOrp {
 #[derive(Debug, Clone, Copy)]
 /// Data for a single temperature calibration point.
 pub struct CalPtT {
-    pub V: f32,   // voltage, in Volts
+    pub V: f32, // voltage, in Volts
     pub T: f32, // in Celsius
 }
 
@@ -479,21 +479,21 @@ impl<I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>, E> OrpSenso
             .read(&mut SingleA2))?)))
     }
 
-    /// Not support by the pH module. Used for reading temperature when an ec
-    /// circuit is wired to A3.
-    #[doc(hidden)]
-    pub fn read_ec(&mut self, t: TempSource) -> Result<f32, ads1x1x::Error<E>> {
-        let T = 0.; // todo
-
-        Ok(ec_from_voltage(
-            voltage_from_adc(block!(self
-                .adc
-                .as_mut()
-                .expect("Measurement after I2C freed")
-                .read(&mut SingleA3))?),
-            T,
-        ))
-    }
+    //    /// Not support by the pH module. Used for reading temperature when an ec
+    //    /// circuit is wired to A3.
+    //    #[doc(hidden)]
+    //    pub fn read_ec(&mut self, t: TempSource) -> Result<f32, ads1x1x::Error<E>> {
+    //        let T = 0.; // todo
+    //
+    //        Ok(ec_from_voltage(
+    //            voltage_from_adc(block!(self
+    //                .adc
+    //                .as_mut()
+    //                .expect("Measurement after I2C freed")
+    //                .read(&mut SingleA3))?),
+    //            T,
+    //        ))
+    //    }
 
     /// Calibrate by measuring voltage at a given ORP. Set the
     /// calibration, and return Voltage.
@@ -528,10 +528,14 @@ pub struct Readings<E> {
 /// It interacts directly with the ADCs, and has no interaction to the Water Monitor's MCU.
 /// todo: For now, this is just for external connections to the Water Monitor: We don't
 /// todo use it in its project code, although we could change that.
-pub struct WaterMonitor<I2C: Read<Error = E> + Write<Error = E> + WriteRead<Error = E>, E> {
-    ph: PhSensor<I2C, E>, // at 0x48. Inludes the temp sensor at input A3.
+pub struct WaterMonitor<I2C, SPI, E>
+where
+    I2c: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>,
+    SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+{
+    ph: PhSensor<I2C, E>,      // at 0x48. Inludes the temp sensor at input A3.
     orp_ec: OrpSensor<I2C, E>, // at 0x49. Inlucdes the ec sensor at input A3.
-    rtd: Rtd<SPI>, // at 0x49. Inlucdes the ec sensor at input A3.
+    rtd: Rtd<SPI, E>,             // at 0x49. Inlucdes the ec sensor at input A3.
     // todo: For now at least, temp cal is hard coded.
     // We include calibration for Temp and ec here, since they're not used
     // on the standalone glass-electrode modules. Cal pts for them are included in
@@ -540,8 +544,15 @@ pub struct WaterMonitor<I2C: Read<Error = E> + Write<Error = E> + WriteRead<Erro
     cal_temp_2: CalPtT,
 }
 
-impl<I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>, E> WaterMonitor<I2C, E> {
-    pub fn new(i2c: I2C, dt: f32) -> Self {
+impl<I2C, SPI, E> WaterMonitor<I2C, SPI, E>
+where
+    I2c: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>,
+    SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+    O: OutputPin,
+    I: InputPin,
+{
+    pub fn new(spi: &mut SPI, i2c: I2C, cs_rtd: O, alert_rtd: I, dt: f32) -> Self {
+        let mut rtd = Rtd::new(spi, cs_rtd, alert_rtd);
         let mut ph = PhSensor::new(i2c, dt);
         let i2c = ph.free();
         let mut orp_ec = OrpSensor::new_alt_addr(i2c, dt);
@@ -566,7 +577,7 @@ impl<I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>, E> WaterMon
         // we have a problem reading temperature. The user will have to note
         // that they may have errors due to this, but still take the readings.
         let T2 = T.unwrap_or(20.);
-        // todo: TEMP TS
+        // todo: TEMP TS until you get max316 into WM
         // let T2 = 20.;
 
         let pH = self.ph.read(TempSource::OffBoard(T2));
@@ -590,8 +601,8 @@ impl<I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>, E> WaterMon
     }
 
     /// Read temperature from the MAX31865 RTD IC.
-    pub fn read_temp(&mut self) -> Result<f32, > {
-       Ok(self.rtd.read())
+    pub fn read_temp(&mut self) -> Result<f32, E> {
+        Ok(self.rtd.read())
     }
 
     /// Read pH from the `orp_ph` ADC.
@@ -607,14 +618,14 @@ impl<I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>, E> WaterMon
         self.orp_ec.read()
     }
 
-    /// Read electrical conductivity from the `orp_ph` ADC.
-    pub fn read_ec(&mut self) -> Result<f32, ads1x1x::Error<E>> {
-        self.orp_ec_take();
-        let t = TempSource::OffBoard(self.read_temp()?);
-
-        self.orp_ec.unfree(self.ph.free());
-        self.orp_ec.read_ec(t)
-    }
+    //    /// Read electrical conductivity from the `orp_ph` ADC.
+    //    pub fn read_ec(&mut self) -> Result<f32, ads1x1x::Error<E>> {
+    //        self.orp_ec_take();
+    //        let t = TempSource::OffBoard(self.read_temp()?);
+    //
+    //        self.orp_ec.unfree(self.ph.free());
+    //        self.orp_ec.read_ec(t)
+    //    }
 
     /// Read raw voltage from the pH probe.
     pub fn read_ph_voltage(&mut self) -> Result<f32, ads1x1x::Error<E>> {
@@ -627,7 +638,8 @@ impl<I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>, E> WaterMon
         self.ph_temp_take();
 
         Ok(voltage_from_adc(block!(self
-            .ph_temp.adc
+            .ph_temp
+            .adc
             .as_mut()
             .expect("Measurement after I2C freed")
             .read(&mut SingleA3))?))
@@ -639,15 +651,15 @@ impl<I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>, E> WaterMon
         self.orp_ec.read_voltage()
     }
 
-    pub fn read_ec_voltage(&mut self) -> Result<f32, ads1x1x::Error<E>> {
-        self.orp_ec_take();
-
-        Ok(voltage_from_adc(block!(self
-            .orp_ec.adc
-            .as_mut()
-            .expect("Measurement after I2C freed")
-            .read(&mut SingleA3))?))
-    }
+    //    pub fn read_ec_voltage(&mut self) -> Result<f32, ads1x1x::Error<E>> {
+    //        self.orp_ec_take();
+    //
+    //        Ok(voltage_from_adc(block!(self
+    //            .orp_ec.adc
+    //            .as_mut()
+    //            .expect("Measurement after I2C freed")
+    //            .read(&mut SingleA3))?))
+    //    }
 
     pub fn calibrate_all_ph(&mut self, pt0: CalPt, pt1: CalPt, pt2: Option<CalPt>) {
         self.ph.calibrate_all(pt0, pt1, pt2);
@@ -681,37 +693,48 @@ impl<I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>, E> WaterMon
     }
 }
 
-pub struct Rtd<SPI: spi::Write<u8> + spi::Transfer<u8>> {
-    sensor: Max31865,
-    cal_1: CalPtT,
-    // cal_2: CalPt,
-    // cal_3: Option<CalPt>,
+//pub struct Rtd<SPI: spi::Write<u8> + spi::Transfer<u8>> {
+pub struct Rtd<SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>, E> {
+    sensor: Max31865<SPI, E>,
+    cal: CalPtT
 }
 
-impl <SPI: spi::Write<u8> + spi::Transfer<u8>, O: OutputPin, I: InputPin> Rtd<SPI> {
-    pub fn new(spi: SPI, cs: O, rdy: I) {
+//impl <SPI: spi::Write<u8> + spi::T,ransfer<u8>, O: OutputPin, I: InputPin> Rtd<SPI> {
+impl<
+        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+        E,
+    > Rtd<SPI, E>
+{
+    pub fn new(spi: &mut SPI, cs: O, rdy: I)
+    where         O: OutputPin,
+        I: InputPin,{
         let mut max31865 = Max31865::new(spi1, cs, rdy).unwrap();
         max31865.set_calibration(43234).unwrap();
-        max31865.configure(
-            true,  // vbias voltage; must be true to perform conversion.
-            true,  // automatically perform conversion
-            true, // One-shot mode
-            SensorType::ThreeWire,
-            FilterMode::Filter60Hz,  // mains freq, eg 50Hz in Europe, 50Hz in US.
-        ).unwrap();
+        max31865
+            .configure(
+                spi,
+                true, // vbias voltage; must be true to perform conversion.
+                true, // automatically perform conversion
+                true, // One-shot mode
+                SensorType::ThreeWire,
+                FilterMode::Filter60Hz, // mains freq, eg 50Hz in Europe, 50Hz in US.
+            )
+            .unwrap();
     }
 
     /// Measure temperature, in Celsius
-    pub fn read(&mut self) -> f32 {
-        max31865.read_default_conversion().unwrap() / 100.
+    pub fn read<SPI, E>(&mut self, spi: &mut SPI) -> f32
+    where  SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>{
+        max31865.read_default_conversion(spi).unwrap() / 100.
     }
 
     /// Measure temperature, in Celsius
     /// (From driver notes:   You can perform calibration by putting the sensor in boiling (100 degrees
     /// Celcius) water and then measuring the raw value using `read_raw`. Calculate
     /// `calib` as `(13851 << 15) / raw >> 1`.
-    pub fn calibrate(&mut self) {
-        let raw = self.sensor.read_raw();
+    pub fn calibrate<SPI, E>(&mut self, spi: &mut SPI)
+    where  SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>{
+        let raw = self.sensor.read_raw(spi);
         self.sensor.set_calibration((13851 << 15) / raw >> 1);
     }
 
@@ -795,26 +818,26 @@ pub fn temp_from_voltage(V: f32) -> f32 {
     100. * V - 60.
 }
 
-/// Convert PT100-circuit voltage to Temperature, in °C
-/// We model the relationship between sensor voltage and temperature linearly
-/// between 2 calibration points.
-fn temp_pt100_from_voltage(V: f32, cal_0: CalPtT, cal_1: CalPtT) -> f32 {
-    // a is the slope, T / V.
-    let a = (cal_1.T - cal_0.T) / (cal_1.V - cal_0.V);
-    let b = cal_1.T - a * cal_1.V;
-    a * V + b
+///// Convert PT100-circuit voltage to Temperature, in °C
+///// We model the relationship between sensor voltage and temperature linearly
+///// between 2 calibration points.
+//fn temp_pt100_from_voltage(V: f32, cal_0: CalPtT, cal_1: CalPtT) -> f32 {
+//    // a is the slope, T / V.
+//    let a = (cal_1.T - cal_0.T) / (cal_1.V - cal_0.V);
+//    let b = cal_1.T - a * cal_1.V;
+//    a * V + b
+//
+//    // todo: Evaluate if a LUT is what you want. Quadratic polynomial, 3-deg poly?
+//    // todo: Lagrange poly?
+//
+//    // https://www.digikey.com/en/articles/rtds-ptcs-and-ntcs-how-to
+//    // -effectively-decipher-this-alphabet-soup-of-temperature-sensors
+//
+//}
 
-    // todo: Evaluate if a LUT is what you want. Quadratic polynomial, 3-deg poly?
-    // todo: Lagrange poly?
-
-    // https://www.digikey.com/en/articles/rtds-ptcs-and-ntcs-how-to
-    // -effectively-decipher-this-alphabet-soup-of-temperature-sensors
-
-}
-
-/// Map voltage to temperature for our custom ec circuit. Not
-/// supported by the pH module.
-fn ec_from_voltage(V: f32, temp: f32) -> f32 {
-    // todo
-    V
-}
+///// Map voltage to temperature for our custom ec circuit. Not
+///// supported by the pH module.
+//fn ec_from_voltage(V: f32, temp: f32) -> f32 {
+//    // todo
+//    V
+//}

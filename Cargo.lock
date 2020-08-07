@@ -12,11 +12,12 @@ dependencies = [
 
 [[package]]
 name = "anyleaf"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "ads1x1x",
  "embedded-hal",
  "filter",
+ "max31865",
  "nalgebra",
  "nb",
  "num-traits",
@@ -39,9 +40,9 @@ checksum = "f8aac770f1885fd7e387acedd76065302551364496e46b3dd00860b2f8359b9d"
 
 [[package]]
 name = "embedded-hal"
-version = "0.2.3"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee4908a155094da7723c2d60d617b820061e3b4efcc3d9e293d206a5a76c170b"
+checksum = "fa998ce59ec9765d15216393af37a58961ddcefb14c753b4816ba2191d865fcb"
 dependencies = [
  "nb",
  "void",
@@ -49,8 +50,9 @@ dependencies = [
 
 [[package]]
 name = "filter"
-version = "0.2.1-dev"
-source = "git+https://github.com/MichaelMauderer/filter-rs?branch=develop#b9072406ee43af99deb9d3abfd247bddc274886b"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b140fa6c26cd2b75be6afca95852ad1673d49da80cbe850f78ca9845abcf8c32"
 dependencies = [
  "nalgebra",
  "num-traits",
@@ -70,6 +72,13 @@ name = "libm"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c7d73b3f436185384286bd8098d17ec07c9a7d2388a6599f824d8502b529702a"
+
+[[package]]
+name = "max31865"
+version = "0.1.0"
+dependencies = [
+ "embedded-hal",
+]
 
 [[package]]
 name = "nalgebra"
