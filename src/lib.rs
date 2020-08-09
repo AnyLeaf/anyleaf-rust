@@ -725,8 +725,13 @@ impl<SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>, E> Rtd<SPI, 
         I: InputPin,
     {
         let mut max31865 = Max31865::new(spi1, cs, rdy).unwrap();
-        // Set this to the reference resistance * 100.
-        max31865.set_calibration(30_000).unwrap();
+
+        let ref_R = match type_ {
+            RtdType::Pt100 => 100,
+            RtdType::Pt1000 => 1_000,
+        };
+        // Set cal to the circuit's reference resistance * 100.
+        max31865.set_calibration(ref_R * 100).unwrap();
 
 //        let sensor_type = match type_ {
 //            RtdType::Pt100 => SensorType::
