@@ -535,7 +535,7 @@ where
 {
     ph: PhSensor<I2C, E>,      // at 0x48. Inludes the temp sensor at input A3.
     orp_ec: OrpSensor<I2C, E>, // at 0x49. Inlucdes the ec sensor at input A3.
-    rtd: Rtd<SPI, E>,             // at 0x49. Inlucdes the ec sensor at input A3.
+    rtd: Rtd<SPI, E>,          // at 0x49. Inlucdes the ec sensor at input A3.
     // todo: For now at least, temp cal is hard coded.
     // We include calibration for Temp and ec here, since they're not used
     // on the standalone glass-electrode modules. Cal pts for them are included in
@@ -693,30 +693,59 @@ where
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum RtdType {
+    // todo: The lib you're using only supports PT100s. Will have to add PT1000
+    // todo support in your fork.
+    Pt100,
+    Pt1000,
+}
+
+#[derive(Clone, Copy, Debug)]
+/// Thinly wraps `max31865::SensorType`.
+pub enum RtdWires {
+    Two,
+    Three,
+    Four,
+}
+
 //pub struct Rtd<SPI: spi::Write<u8> + spi::Transfer<u8>> {
 pub struct Rtd<SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>, E> {
     sensor: Max31865<SPI, E>,
-    cal: CalPtT
+    type_: RtdType,
+    wires: RtdWires,
+    cal: CalPtT,
 }
 
 //impl <SPI: spi::Write<u8> + spi::T,ransfer<u8>, O: OutputPin, I: InputPin> Rtd<SPI> {
-impl<
-        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
-        E,
-    > Rtd<SPI, E>
-{
-    pub fn new(spi: &mut SPI, cs: O, rdy: I)
-    where         O: OutputPin,
-        I: InputPin,{
+impl<SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>, E> Rtd<SPI, E> {
+    pub fn new(spi: &mut SPI, cs: O, rdy: I, type_: RtdType, wires_: RtdWires)
+    where
+        O: OutputPin,
+        I: InputPin,
+    {
         let mut max31865 = Max31865::new(spi1, cs, rdy).unwrap();
-        max31865.set_calibration(43234).unwrap();
+        // Set this to the reference resistance * 100.
+        max31865.set_calibration(30_000).unwrap();
+
+//        let sensor_type = match type_ {
+//            RtdType::Pt100 => SensorType::
+//        };
+
+        let wires = match wires_ {
+            RtdWires::Two => SensorType::TwoOrFourWire,
+            RtdWires::Three => SensorType::ThreeWire,
+            RtdWires::Four => SensorType::TwoOrFourWire,
+        };
+
         max31865
             .configure(
                 spi,
                 true, // vbias voltage; must be true to perform conversion.
                 true, // automatically perform conversion
                 true, // One-shot mode
-                SensorType::ThreeWire,
+                wires,
+                // todo: Make this configurable once you add non-US markets.
                 FilterMode::Filter60Hz, // mains freq, eg 50Hz in Europe, 50Hz in US.
             )
             .unwrap();
@@ -724,7 +753,9 @@ impl<
 
     /// Measure temperature, in Celsius
     pub fn read<SPI, E>(&mut self, spi: &mut SPI) -> f32
-    where  SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>{
+    where
+        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+    {
         max31865.read_default_conversion(spi).unwrap() / 100.
     }
 
@@ -733,7 +764,9 @@ impl<
     /// Celcius) water and then measuring the raw value using `read_raw`. Calculate
     /// `calib` as `(13851 << 15) / raw >> 1`.
     pub fn calibrate<SPI, E>(&mut self, spi: &mut SPI)
-    where  SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>{
+    where
+        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+    {
         let raw = self.sensor.read_raw(spi);
         self.sensor.set_calibration((13851 << 15) / raw >> 1);
     }
