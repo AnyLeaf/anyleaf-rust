@@ -7,10 +7,9 @@ use anyleaf::{Rtd, CalPtT};
 
 fn main() {
     let spi = I2cdev::new("/dev/i2c-1").unwrap();
-    cs =
-    rdy =
+    // let cs = rppal...
 
-    let mut rtd = Rtd::new(&mut spi, cs, rdy);
+    let mut rtd = Rtd::new(&mut spi, cs);
 
     let mut delay = Delay {};
 

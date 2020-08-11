@@ -566,11 +566,11 @@ where
     CS: OutputPin,
     RDY: InputPin,
 {
-    pub fn new<SPI>(spi: &mut SPI, i2c: I2C, cs_rtd: CS, alert_rtd: RDY, dt: f32) -> Self
+    pub fn new<SPI>(spi: &mut SPI, i2c: I2C, cs_rtd: CS, dt: f32) -> Self
     where
         SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
-        let mut rtd = Rtd::new(spi, cs_rtd, alert_rtd, RtdType::Pt100, RtdWires::Three);
+        let mut rtd = Rtd::new(spi, cs_rtd, RtdType::Pt100, RtdWires::Three);
         let mut ph = PhSensor::new(i2c, dt);
         let i2c = ph.free();
         let mut orp_ec = OrpSensor::new_alt_addr(i2c, dt);
@@ -606,7 +606,7 @@ where
         self.orp_ec.unfree(self.ph.free());
 
         let ORP = self.orp_ec.read();
-//        let ec = self.orp_ec.read_ec(TempSource::OffBoard(T2));
+        //        let ec = self.orp_ec.read_ec(TempSource::OffBoard(T2));
         let ec = Ok(0.); // todo impl once you get new ec circuit working.
 
         // Assume the ph_temp ADC has I2C by default.
@@ -758,14 +758,13 @@ impl<CS, RDY> Rtd<CS, RDY>
 where
     CS: OutputPin,
     RDY: InputPin,
-
 {
-    pub fn new<SPI, E>(spi: &mut SPI, cs: CS, rdy: RDY, type_: RtdType, wires_: RtdWires) -> Self
+    pub fn new<SPI, E>(spi: &mut SPI, cs: CS, type_: RtdType, wires_: RtdWires) -> Self
     where
         SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
-//        let mut sensor: Max31865<CS, RDY> = Max31865::new(cs, rdy).unwrap();
-        let mut sensor: Result<Max31865<CS, RDY>, E> = Max31865::new(cs, rdy);
+        //        let mut sensor: Max31865<CS, RDY> = Max31865::new(cs, rdy).unwrap();
+        let mut sensor: Result<Max31865<CS, RDY>, E> = Max31865::new(cs, None);
         let mut sensor = sensor.unwrap_or_else(|_| panic!("Problem setting up temp sensor."));
 
         let ref_R = match type_ {
@@ -773,7 +772,8 @@ where
             RtdType::Pt1000 => 1_000,
         };
         // Set cal to the circuit's reference resistance * 100.
-        sensor.set_calibration::<E>(ref_R * 100)
+        sensor
+            .set_calibration::<E>(ref_R * 100)
             .unwrap_or_else(|_| panic!("Problem setting calibration for the temp sensor."));
 
         //        let sensor_type = match type_ {
@@ -828,9 +828,9 @@ where
         SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
         let raw = self.sensor.read_raw(spi).unwrap_or(0);
-//        self.sensor.set_calibration(  // todo: Fix
-//            ((13851 << 15) / (raw >> 1)) as u32
-//        );
+        //        self.sensor.set_calibration(  // todo: Fix
+        //            ((13851 << 15) / (raw >> 1)) as u32
+        //        );
     }
 
     // todo: Way to pre-set calibration value?

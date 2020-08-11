@@ -42,9 +42,6 @@ fn main() -> ! {
     let cs = gpioa
         .pa8
         .into_push_pull_output(&mut gpioa.moder, &mut gpioa.otyper);
-    let rdy = gpioa
-        .pa9
-        .into_floating_input(&mut gpioa.moder, &mut gpioa.otyper);
 
     let spi_mode = Mode {
         polarity: Polarity::IdleLow,
@@ -61,7 +58,7 @@ fn main() -> ! {
     );
 
     let dt = 1.; // Time between measurements, in seconds
-    let mut rtd = Rtd::new(&mut spi, cs, rdy);
+    let mut rtd = Rtd::new(&mut spi, cs);
 
     loop {
         println!("Temp: {}", rtd.read().unwrap());
