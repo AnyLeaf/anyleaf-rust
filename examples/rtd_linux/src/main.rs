@@ -2,12 +2,12 @@
 //! using Rust on Linux
 
 use embedded_hal::blocking::delay::DelayMs;
-use linux_embedded_hal::{Delay, I2cdev};
+use linux_embedded_hal::{Delay, Spidev};
 use anyleaf::{Rtd, CalPtT};
 
 fn main() {
-    let spi = I2cdev::new("/dev/i2c-1").unwrap();
-    // let cs = rppal...
+    let mut spi = Spidev::new("/dev/spidev0.0").unwrap();
+    let mut cs = Gpio::new().unwrap().get(5).unwrap().into_output();
 
     let mut rtd = Rtd::new(&mut spi, cs);
 
