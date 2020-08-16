@@ -77,7 +77,7 @@ use embedded_hal::{
     adc::OneShot,
     blocking::i2c::{Read, Write, WriteRead},
     blocking::spi,
-    digital::v2::{InputPin, OutputPin},
+    digital::v2::{OutputPin},
 };
 use filter::kalman::kalman_filter::KalmanFilter;
 
@@ -546,16 +546,18 @@ pub struct Readings<E> {
 /// It interacts directly with the ADCs, and has no interaction to the Water Monitor's MCU.
 /// todo: For now, this is just for external connections to the Water Monitor: We don't
 /// todo use it in its project code, although we could change that.
-pub struct WaterMonitor<I2C, CS, RDY, E>
+// pub struct WaterMonitor<I2C, CS, RDY, E>
+pub struct WaterMonitor<I2C, CS, E>
 where
     I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>,
     //    SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     CS: OutputPin,
-    RDY: InputPin,
+    // RDY: InputPin,
 {
     ph: PhSensor<I2C, E>,      // at 0x48. Inludes the temp sensor at input A3.
     orp_ec: OrpSensor<I2C, E>, // at 0x49. Inlucdes the ec sensor at input A3.
-    rtd: Rtd<CS, RDY>,         // at 0x49. Inlucdes the ec sensor at input A3.
+    // rtd: Rtd<CS, RDY>,         // at 0x49. Inlucdes the ec sensor at input A3.
+    rtd: Rtd<CS>,         // at 0x49. Inlucdes the ec sensor at input A3.
                                // todo: For now at least, temp cal is hard coded.
                                // We include calibration for Temp and ec here, since they're not used
                                // on the standalone glass-electrode modules. Cal pts for them are included in
@@ -564,12 +566,13 @@ where
                                //    cal_temp_2: CalPtT,
 }
 
-impl<I2C, CS, RDY, E> WaterMonitor<I2C, CS, RDY, E>
+// impl<I2C, CS, RDY, E> WaterMonitor<I2C, CS, RDY, E>
+impl<I2C, CS, E> WaterMonitor<I2C, CS, E>
 where
     I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>,
     //        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     CS: OutputPin,
-    RDY: InputPin,
+    // RDY: InputPin,
 {
     pub fn new<SPI>(spi: &mut SPI, i2c: I2C, cs_rtd: CS, dt: f32) -> Self
     where
@@ -744,13 +747,15 @@ pub enum RtdWires {
 }
 
 //pub struct Rtd<SPI: spi::Write<u8> + spi::Transfer<u8>> {
-pub struct Rtd<CS, RDY>
+// pub struct Rtd<CS, RDY>
+pub struct Rtd<CS>
 where
     CS: OutputPin,
-    RDY: InputPin,
+    // RDY: InputPin,
 {
     //pub struct Rtd<SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>, E> {
-    sensor: Max31865<CS, RDY>,
+    // sensor: Max31865<CS, RDY>,
+    sensor: Max31865<CS>,
     //    sensor: Max31865<SPI, E>,
     type_: RtdType,
     wires: RtdWires,
@@ -759,17 +764,20 @@ where
 
 //impl <SPI: spi::Write<u8> + spi::T,ransfer<u8>, O: OutputPin, I: InputPin> Rtd<SPI> {
 //impl<SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>, E> Rtd<SPI, E> {
-impl<CS, RDY> Rtd<CS, RDY>
+// impl<CS, RDY> Rtd<CS, RDY>
+impl<CS> Rtd<CS>
 where
     CS: OutputPin,
-    RDY: InputPin,
+    // RDY: InputPin,
 {
     pub fn new<SPI, E>(spi: &mut SPI, cs: CS, type_: RtdType, wires_: RtdWires) -> Self
     where
         SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
         //        let mut sensor: Max31865<CS, RDY> = Max31865::new(cs, rdy).unwrap();
-        let sensor: Result<Max31865<CS, RDY>, E> = Max31865::new(cs, None);
+        // let sensor: Result<Max31865<CS, RDY>, E> = Max31865::new(cs, None);
+        // let sensor: Result<Max31865<CS>, E> = Max31865::new(cs, None);
+        let sensor: Result<Max31865<CS>, E> = Max31865::new(cs);
         let mut sensor = sensor.unwrap_or_else(|_| panic!("Problem setting up temp sensor."));
 
         let ref_R = match type_ {

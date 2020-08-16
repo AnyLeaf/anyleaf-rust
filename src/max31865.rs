@@ -31,18 +31,20 @@ pub enum SensorType {
     ThreeWire = 1,
 }
 
-pub struct Max31865<CS: OutputPin, RDY: InputPin> {
+// pub struct Max31865<CS: OutputPin, RDY: InputPin> {
+pub struct Max31865<CS: OutputPin> {
     // spi: SPI,
     cs: CS,
-    rdy: Option<RDY>,
+    // rdy: Option<RDY>,
     calibration: u32,
 }
 
-impl<CS, RDY> Max31865<CS, RDY>
+// impl<CS, RDY> Max31865<CS, RDY>
+impl<CS> Max31865<CS>
 where
     // SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     CS: OutputPin,
-    RDY: InputPin,
+    // RDY: InputPin,
 {
     /// Create a new MAX31865 module.
     ///
@@ -56,15 +58,16 @@ where
     pub fn new<E>(
         // spi: SPI,
         mut cs: CS,
-        rdy: Option<RDY>,
-    ) -> Result<Max31865<CS, RDY>, E> {
+        // rdy: Option<RDY>,
+    // ) -> Result<Max31865<CS, RDY>, E> {
+    ) -> Result<Max31865<CS>, E> {
         let default_calib = 40000;
 
         cs.set_high().ok();
         let max31865 = Max31865 {
             // spi,
             cs,
-            rdy,
+            // rdy,
             calibration: default_calib, /* value in ohms multiplied by 100 */
         };
 
@@ -175,10 +178,11 @@ where
     //     self.rdy.is_low()
     // }
     pub fn is_ready<E>(&self) -> bool {
-        match &self.rdy {
-            Some(rdy) => rdy.is_low().unwrap_or(false),
-            None => true,
-        }
+        // match &self.rdy {
+        //     Some(rdy) => rdy.is_low().unwrap_or(false),
+        //     None => true,
+        // }
+        true // todo
     }
 
     fn read<SPI, E>(&mut self, spi: &mut SPI, reg: Register) -> Result<u8, E>

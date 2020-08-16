@@ -3,7 +3,7 @@
 
 # Anyleaf
 
-## For use with the AnyLeaf pH sensor in Rust on embedded systems, and single-board computers.
+## For use with the AnyLeaf pH and RTD sensors in Rust on embedded systems, and single-board computers.
 [Homepage](https://anyleaf.org)
 
 ### Example for Raspberry Pi, and other Linux systems:
