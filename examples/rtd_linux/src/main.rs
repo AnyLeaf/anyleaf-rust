@@ -2,20 +2,20 @@
 //! using Rust on Linux
 
 use embedded_hal::blocking::delay::DelayMs;
-use linux_embedded_hal::{Delay, Spidev};
-use anyleaf::{Rtd, CalPtT};
+use linux_embedded_hal::{Delay, Pin, Spidev};
+use anyleaf::{Rtd, CalPtT, RtdType, RtdWires};
 
 fn main() {
-    let mut spi = Spidev::new("/dev/spidev0.0").unwrap();
-    let mut cs = Gpio::new().unwrap().get(5).unwrap().into_output();
+    let mut spi = Spidev::open("/dev/spidev0.0").unwrap();
+    let mut cs = Pin::new(5);
 
-    let mut rtd = Rtd::new(&mut spi, cs);
+    let mut rtd = Rtd::new(&mut spi, cs, RtdType::Pt100, RtdWires::Three);
 
     let mut delay = Delay {};
 
     loop {
-        println!("Temp: {}", rtd.read().unwrap());
+        println!("Temp: {}", rtd.read(&mut spi).unwrap());
 
-        delay.delay_ms(dt as u16 * 1000);
+        delay.delay_ms(1_000_u16);
     }
 }

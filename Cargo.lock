@@ -17,7 +17,6 @@ dependencies = [
  "ads1x1x",
  "embedded-hal",
  "filter",
- "max31865",
  "nalgebra",
  "nb",
  "num-traits",
@@ -72,14 +71,6 @@ name = "libm"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c7d73b3f436185384286bd8098d17ec07c9a7d2388a6599f824d8502b529702a"
-
-[[package]]
-name = "max31865"
-version = "0.1.0"
-source = "git+https://github.com/david-oconnor/max31865?branch=borrow-spi#6ef683715ba4b46a2f7e6362624c1858653c898b"
-dependencies = [
- "embedded-hal",
-]
 
 [[package]]
 name = "nalgebra"

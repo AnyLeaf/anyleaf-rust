@@ -61,6 +61,7 @@
 
 #![no_std]
 #![allow(non_snake_case)]
+#![feature(unsize)]  // Used by the `max31865` module.
 
 #[macro_use(block)]
 extern crate nb;
@@ -79,15 +80,19 @@ use embedded_hal::{
     digital::v2::{InputPin, OutputPin},
 };
 use filter::kalman::kalman_filter::KalmanFilter;
-use max31865::{FilterMode, Max31865, SensorType};
+
 use nalgebra::{
     dimension::{U1, U2},
     Vector1,
 };
-use num_traits::float::FloatCore;
+
+use num_traits::float::FloatCore; // Required to take absolute value in `no_std`.
 
 mod filter_;
+mod max31865;
 mod storage;
+
+use max31865::{FilterMode, Max31865, SensorType};
 
 // Compensate for temperature diff between readings and calibration.
 const PH_TEMP_C: f32 = -0.05694; // pH/(V*T). V is in volts, and T is in °C
@@ -570,7 +575,7 @@ where
     where
         SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
-        let mut rtd = Rtd::new(spi, cs_rtd, RtdType::Pt100, RtdWires::Three);
+        let rtd = Rtd::new(spi, cs_rtd, RtdType::Pt100, RtdWires::Three);
         let mut ph = PhSensor::new(i2c, dt);
         let i2c = ph.free();
         let mut orp_ec = OrpSensor::new_alt_addr(i2c, dt);
@@ -623,11 +628,11 @@ where
     }
 
     /// Read temperature from the MAX31865 RTD IC.
-    pub fn read_temp<SPI, E2>(&mut self, spi: &mut SPI) -> Result<f32, E>
+    pub fn read_temp<SPI, E2>(&mut self, spi: &mut SPI) -> Result<f32, E2>
     where
         SPI: spi::Write<u8, Error = E2> + spi::Transfer<u8, Error = E2>,
     {
-        Ok(self.rtd.read(spi))
+        self.rtd.read(spi)
     }
 
     /// Read pH from the `orp_ph` ADC.
@@ -764,7 +769,7 @@ where
         SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
         //        let mut sensor: Max31865<CS, RDY> = Max31865::new(cs, rdy).unwrap();
-        let mut sensor: Result<Max31865<CS, RDY>, E> = Max31865::new(cs, None);
+        let sensor: Result<Max31865<CS, RDY>, E> = Max31865::new(cs, None);
         let mut sensor = sensor.unwrap_or_else(|_| panic!("Problem setting up temp sensor."));
 
         let ref_R = match type_ {
@@ -807,15 +812,13 @@ where
     }
 
     /// Measure temperature, in Celsius
-    pub fn read<SPI, E>(&mut self, spi: &mut SPI) -> f32
+    pub fn read<SPI, E>(&mut self, spi: &mut SPI) -> Result<f32, E>
     where
         SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
-        if let Ok(val) = self.sensor.read_default_conversion(spi) {
-            val as f32 / 100.
-        } else {
-            // todo: Proper error handling.
-            99.
+        match self.sensor.read_default_conversion(spi) {
+            Ok(val) => Ok(val as f32 / 100.),
+            Err(e) => Err(e),
         }
     }
 

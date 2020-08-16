@@ -16,7 +16,7 @@ use embedded_hal::blocking::delay::DelayMs;
 #[cfg(debug_assertions)]
 extern crate panic_semihosting;
 
-use anyleaf::{PhSensor, CalPt, CalSlot, TempSource};
+use anyleaf::{Rtd, CalPtT, RtdType, RtdWires};
 
 #[entry]
 fn main() -> ! {
@@ -58,7 +58,7 @@ fn main() -> ! {
     );
 
     let dt = 1.; // Time between measurements, in seconds
-    let mut rtd = Rtd::new(&mut spi, cs);
+    let mut rtd = Rtd::new(&mut spi, cs, RtdType::Pt100, RtdWires::Three);
 
     loop {
         println!("Temp: {}", rtd.read().unwrap());
