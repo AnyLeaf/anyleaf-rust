@@ -61,7 +61,7 @@
 
 #![no_std]
 #![allow(non_snake_case)]
-#![feature(unsize)]  // Used by the `max31865` module.
+#![feature(unsize)] // Used by the `max31865` module.
 
 #[macro_use(block)]
 extern crate nb;
@@ -77,7 +77,7 @@ use embedded_hal::{
     adc::OneShot,
     blocking::i2c::{Read, Write, WriteRead},
     blocking::spi,
-    digital::v2::{OutputPin},
+    digital::v2::OutputPin,
 };
 use filter::kalman::kalman_filter::KalmanFilter;
 
@@ -92,7 +92,7 @@ mod filter_;
 mod max31865;
 mod storage;
 
-use max31865::{FilterMode, Max31865, SensorType};
+use max31865::{FilterMode, Max31865};
 
 // Compensate for temperature diff between readings and calibration.
 const PH_TEMP_C: f32 = -0.05694; // pH/(V*T). V is in volts, and T is in °C
@@ -138,18 +138,18 @@ impl CalPt {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-/// Data for a single RTD (or thermister) calibration point.
-pub struct CalPtRtd {
-    pub R: f32, // Resistance, ohms
-    pub T: f32, // in Celsius
-}
-
-impl CalPtRtd {
-    pub fn new(R: f32, T: f32) -> Self {
-        Self { R, T }
-    }
-}
+// #[derive(Debug, Clone, Copy)]
+// /// Data for a single RTD (or thermister) calibration point.
+// pub struct CalPtRtd {
+//     pub R: f32, // Resistance, ohms
+//     pub T: f32, // in Celsius
+// }
+//
+// impl CalPtRtd {
+//     pub fn new(R: f32, T: f32) -> Self {
+//         Self { R, T }
+//     }
+// }
 
 #[derive(Debug, Clone, Copy)]
 /// Data for a single ORP (or other ion measurement) calibration point.
@@ -557,13 +557,13 @@ where
     ph: PhSensor<I2C, E>,      // at 0x48. Inludes the temp sensor at input A3.
     orp_ec: OrpSensor<I2C, E>, // at 0x49. Inlucdes the ec sensor at input A3.
     // rtd: Rtd<CS, RDY>,         // at 0x49. Inlucdes the ec sensor at input A3.
-    rtd: Rtd<CS>,         // at 0x49. Inlucdes the ec sensor at input A3.
-                               // todo: For now at least, temp cal is hard coded.
-                               // We include calibration for Temp and ec here, since they're not used
-                               // on the standalone glass-electrode modules. Cal pts for them are included in
-                               // `PhSensor` and `OrpSensor`.
-                               //cal_temp_1: CalPtT,
-                               //    cal_temp_2: CalPtT,
+    rtd: Rtd<CS>, // at 0x49. Inlucdes the ec sensor at input A3.
+                  // todo: For now at least, temp cal is hard coded.
+                  // We include calibration for Temp and ec here, since they're not used
+                  // on the standalone glass-electrode modules. Cal pts for them are included in
+                  // `PhSensor` and `OrpSensor`.
+                  //cal_temp_1: CalPtT,
+                  //    cal_temp_2: CalPtT,
 }
 
 // impl<I2C, CS, RDY, E> WaterMonitor<I2C, CS, RDY, E>
@@ -747,37 +747,24 @@ pub enum RtdWires {
 }
 
 //pub struct Rtd<SPI: spi::Write<u8> + spi::Transfer<u8>> {
-// pub struct Rtd<CS, RDY>
-pub struct Rtd<CS>
-where
-    CS: OutputPin,
-    // RDY: InputPin,
-{
+/// This provides a higher level interface than in the `max31865` module.
+pub struct Rtd<CS: OutputPin> {
     //pub struct Rtd<SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>, E> {
-    // sensor: Max31865<CS, RDY>,
     sensor: Max31865<CS>,
     //    sensor: Max31865<SPI, E>,
     type_: RtdType,
     wires: RtdWires,
-    cal: CalPtRtd,
+    // cal: CalPtRtd,
 }
 
 //impl <SPI: spi::Write<u8> + spi::T,ransfer<u8>, O: OutputPin, I: InputPin> Rtd<SPI> {
 //impl<SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>, E> Rtd<SPI, E> {
-// impl<CS, RDY> Rtd<CS, RDY>
-impl<CS> Rtd<CS>
-where
-    CS: OutputPin,
-    // RDY: InputPin,
-{
-    pub fn new<SPI, E>(spi: &mut SPI, cs: CS, type_: RtdType, wires_: RtdWires) -> Self
+impl<CS: OutputPin> Rtd<CS> {
+    pub fn new<SPI, E>(spi: &mut SPI, cs: CS, type_: RtdType, wires: RtdWires) -> Self
     where
         SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
-        //        let mut sensor: Max31865<CS, RDY> = Max31865::new(cs, rdy).unwrap();
-        // let sensor: Result<Max31865<CS, RDY>, E> = Max31865::new(cs, None);
-        // let sensor: Result<Max31865<CS>, E> = Max31865::new(cs, None);
-        let sensor: Result<Max31865<CS>, E> = Max31865::new(cs);
+        let sensor: Result<Max31865<CS>, E> = Max31865::new(cs, type_);
         let mut sensor = sensor.unwrap_or_else(|_| panic!("Problem setting up temp sensor."));
 
         let ref_R = match type_ {
@@ -792,12 +779,6 @@ where
         //        let sensor_type = match type_ {
         //            RtdType::Pt100 => SensorType::
         //        };
-
-        let wires = match wires_ {
-            RtdWires::Two => SensorType::TwoOrFourWire,
-            RtdWires::Three => SensorType::ThreeWire,
-            RtdWires::Four => SensorType::TwoOrFourWire,
-        };
 
         sensor
             .configure(
@@ -814,9 +795,27 @@ where
         Self {
             sensor,
             type_,
-            wires: wires_,
-            cal: CalPtRtd::new(0., 100.),
+            wires,
+            // cal: CalPtRtd::new(0., 100.),
         }
+    }
+
+    /// Set filter mode to 50Hz AC noise, eg in Europe. Defaults to 60Hz for US.
+    pub fn set_50hz<SPI, E>(&mut self, spi: &mut SPI)
+    where
+        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+    {
+        self.sensor
+            .configure(
+                spi,
+                true, // vbias voltage; must be true to perform conversion.
+                true, // automatically perform conversion
+                true, // One-shot mode
+                self.wires,
+                // todo: Make this configurable once you add non-US markets.
+                FilterMode::Filter50Hz, // mains freq, eg 50Hz in Europe, 50Hz in US.
+            )
+            .ok();
     }
 
     /// Measure temperature, in Celsius

@@ -12,6 +12,8 @@ use hal::spi::{Mode, Phase, Polarity};
 use core::marker::Unsize;
 use core::mem;
 
+use crate::{RtdType, RtdWires};
+
 #[cfg(feature = "doc")]
 pub use examples;
 
@@ -20,31 +22,22 @@ pub const MODE: Mode = Mode {
     polarity: Polarity::IdleHigh,
 };
 
-
 pub enum FilterMode {
     Filter60Hz = 0,
     Filter50Hz = 1,
 }
 
-pub enum SensorType {
-    TwoOrFourWire = 0,
-    ThreeWire = 1,
-}
-
-// pub struct Max31865<CS: OutputPin, RDY: InputPin> {
 pub struct Max31865<CS: OutputPin> {
     // spi: SPI,
     cs: CS,
-    // rdy: Option<RDY>,
+    type_: RtdType,
     calibration: u32,
 }
 
-// impl<CS, RDY> Max31865<CS, RDY>
 impl<CS> Max31865<CS>
 where
     // SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     CS: OutputPin,
-    // RDY: InputPin,
 {
     /// Create a new MAX31865 module.
     ///
@@ -52,14 +45,11 @@ where
     ///
     /// * `spi` - The SPI module to communicate on.
     /// * `cs` - The chip select pin which should be set to a push pull output pin.
-    /// * `rdy` - The ready pin which is set low by the MAX31865 controller whenever
-    ///             it has finished converting the output.
     ///
     pub fn new<E>(
         // spi: SPI,
         mut cs: CS,
-        // rdy: Option<RDY>,
-    // ) -> Result<Max31865<CS, RDY>, E> {
+        type_: RtdType,
     ) -> Result<Max31865<CS>, E> {
         let default_calib = 40000;
 
@@ -67,7 +57,7 @@ where
         let max31865 = Max31865 {
             // spi,
             cs,
-            // rdy,
+            type_,
             calibration: default_calib, /* value in ohms multiplied by 100 */
         };
 
@@ -96,16 +86,22 @@ where
         vbias: bool,
         conversion_mode: bool,
         one_shot: bool,
-        sensor_type: SensorType,
+        wires: RtdWires,
         filter_mode: FilterMode,
     ) -> Result<(), E>
     where
         SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
+        let wires = match wires {
+            RtdWires::Two => 0,
+            RtdWires::Three => 1,
+            RtdWires::Four => 0,
+        };
+
         let conf: u8 = ((vbias as u8) << 7)
             | ((conversion_mode as u8) << 6)
             | ((one_shot as u8) << 5)
-            | ((sensor_type as u8) << 4)
+            | ((wires as u8) << 4)
             | (filter_mode as u8);
 
         self.write(spi, Register::CONFIG, conf)?;
@@ -143,7 +139,7 @@ where
     {
         let raw = self.read_raw(spi)?;
         let ohms = ((raw >> 1) as u32 * self.calibration) >> 15;
-        let temp = lookup_temperature(ohms as u16);
+        let temp = lookup_temperature(ohms as u16, self.type_);
 
         Ok(temp)
     }
@@ -174,15 +170,9 @@ where
     /// When the module is finished converting the temperature it sets the
     /// ready pin to low. It is automatically returned to high upon reading the
     /// RTD registers.
-    // pub fn is_ready<E>(&self) -> Result<bool, E> {
-    //     self.rdy.is_low()
-    // }
-    pub fn is_ready<E>(&self) -> bool {
-        // match &self.rdy {
-        //     Some(rdy) => rdy.is_low().unwrap_or(false),
-        //     None => true,
-        // }
-        true // todo
+    pub fn is_ready<E, I: InputPin>(&self, rdy: I) -> bool {
+        // pub fn is_ready<E, I: InputPin>(&self, rdy: I) -> Result<bool, E> {
+        rdy.is_low().unwrap_or(false)
     }
 
     fn read<SPI, E>(&mut self, spi: &mut SPI, reg: Register) -> Result<u8, E>
@@ -286,7 +276,7 @@ static LOOKUP_TABLE: &[TempPair] = &[
 /// degrees Celcius.
 ///
 /// *Note*: This won't handle edge cases very well.
-fn lookup_temperature(val: u16) -> u32 {
+fn lookup_temperature(val: u16, type_: RtdType) -> u32 {
     let mut first = &(0, 10000);
     let mut second = &(1000, 10390);
     let mut iterator = LOOKUP_TABLE.iter();
