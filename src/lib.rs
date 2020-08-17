@@ -544,18 +544,22 @@ pub struct Readings<E> {
 
 /// We use this to pull data from the Water Monitor to an external program over I2C.
 /// It interacts directly with the ADCs, and has no interaction to the Water Monitor's MCU.
+/// We own the I2C bus, and borrow SPI, currently.
+/// `EI` is for I2C errors. `ES` is for SPI errors.
 /// todo: For now, this is just for external connections to the Water Monitor: We don't
 /// todo use it in its project code, although we could change that.
 // pub struct WaterMonitor<I2C, CS, RDY, E>
-pub struct WaterMonitor<I2C, CS, E>
+// todo: Be able to properly fail for both SPI and I2C errors. We currently
+// todo: only properly handle I2C ones.
+pub struct WaterMonitor<I2C, CS, EI>
 where
-    I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>,
-    //    SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+    I2C: WriteRead<Error = EI> + Write<Error = EI> + Read<Error = EI>,
+    //    SPI: spi::Write<u8, Error = ES> + spi::Transfer<u8, Error = ES>,
     CS: OutputPin,
     // RDY: InputPin,
 {
-    ph: PhSensor<I2C, E>,      // at 0x48. Inludes the temp sensor at input A3.
-    orp_ec: OrpSensor<I2C, E>, // at 0x49. Inlucdes the ec sensor at input A3.
+    ph: PhSensor<I2C, EI>,      // at 0x48. Inludes the temp sensor at input A3.
+    orp_ec: OrpSensor<I2C, EI>, // at 0x49. Inlucdes the ec sensor at input A3.
     // rtd: Rtd<CS, RDY>,         // at 0x49. Inlucdes the ec sensor at input A3.
     rtd: Rtd<CS>, // at 0x49. Inlucdes the ec sensor at input A3.
                   // todo: For now at least, temp cal is hard coded.
@@ -566,17 +570,27 @@ where
                   //    cal_temp_2: CalPtT,
 }
 
+/// Encompasses SPI and I2C errors, so we can coerce both from `WaterMonitor`.
+///
+// #[derive(Clone, Debug)]
+// struct SensorError<ES, EI> {}
+//
+// impl From<>
+
+
+
 // impl<I2C, CS, RDY, E> WaterMonitor<I2C, CS, RDY, E>
-impl<I2C, CS, E> WaterMonitor<I2C, CS, E>
+impl<I2C, CS, EI> WaterMonitor<I2C, CS, EI>
+
 where
-    I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>,
+    I2C: WriteRead<Error = EI> + Write<Error = EI> + Read<Error = EI>,
     //        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     CS: OutputPin,
     // RDY: InputPin,
 {
-    pub fn new<SPI>(spi: &mut SPI, i2c: I2C, cs_rtd: CS, dt: f32) -> Self
+    pub fn new<SPI, ES>(spi: &mut SPI, i2c: I2C, cs_rtd: CS, dt: f32) -> Self
     where
-        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+        SPI: spi::Write<u8, Error = ES> + spi::Transfer<u8, Error = ES>,
     {
         let rtd = Rtd::new(spi, cs_rtd, RtdType::Pt100, RtdWires::Three);
         let mut ph = PhSensor::new(i2c, dt);
@@ -595,9 +609,9 @@ where
     }
 
     // Read all sensors.
-    pub fn read_all<SPI>(&mut self, spi: &mut SPI) -> Readings<E>
+    pub fn read_all<SPI, ES>(&mut self, spi: &mut SPI) -> Readings<EI>
     where
-        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+        SPI: spi::Write<u8, Error = ES> + spi::Transfer<u8, Error = ES>,
     {
         self.ph_take();
 
@@ -631,17 +645,17 @@ where
     }
 
     /// Read temperature from the MAX31865 RTD IC.
-    pub fn read_temp<SPI, E2>(&mut self, spi: &mut SPI) -> Result<f32, E2>
+    pub fn read_temp<SPI, ES>(&mut self, spi: &mut SPI) -> Result<f32, ES>
     where
-        SPI: spi::Write<u8, Error = E2> + spi::Transfer<u8, Error = E2>,
+        SPI: spi::Write<u8, Error = ES> + spi::Transfer<u8, Error = ES>,
     {
         self.rtd.read(spi)
     }
 
     /// Read pH from the `orp_ph` ADC.
-    pub fn read_ph<SPI, E2>(&mut self, spi: &mut SPI) -> Result<f32, ads1x1x::Error<E>>
+    pub fn read_ph<SPI, ES>(&mut self, spi: &mut SPI) -> Result<f32, ads1x1x::Error<EI>>
     where
-        SPI: spi::Write<u8, Error = E2> + spi::Transfer<u8, Error = E2>,
+        SPI: spi::Write<u8, Error = ES> + spi::Transfer<u8, Error = ES>,
     {
         // todo: Propogate SPI errors to I2c etc, eg use ? instead of unwrap_or below,.
         let t = TempSource::OffBoard(self.read_temp(spi).unwrap_or(0.));
@@ -650,7 +664,7 @@ where
     }
 
     /// Read ORP from the `orp_ph` ADC.
-    pub fn read_orp(&mut self) -> Result<f32, ads1x1x::Error<E>> {
+    pub fn read_orp(&mut self) -> Result<f32, ads1x1x::Error<EI>> {
         self.orp_ec_take();
         self.orp_ec.read()
     }
@@ -665,13 +679,13 @@ where
     //    }
 
     /// Read raw voltage from the pH probe.
-    pub fn read_ph_voltage(&mut self) -> Result<f32, ads1x1x::Error<E>> {
+    pub fn read_ph_voltage(&mut self) -> Result<f32, ads1x1x::Error<EI>> {
         self.ph_take();
         self.ph.read_voltage()
     }
 
     /// Read raw voltage from the temperature output. This corresponds to a RTD resistance.
-    pub fn read_temp_voltage(&mut self) -> Result<f32, ads1x1x::Error<E>> {
+    pub fn read_temp_voltage(&mut self) -> Result<f32, ads1x1x::Error<EI>> {
         self.ph_take();
 
         Ok(voltage_from_adc(block!(self
@@ -683,7 +697,7 @@ where
     }
 
     /// Read raw voltage from the ORP probe.
-    pub fn read_orp_voltage(&mut self) -> Result<f32, ads1x1x::Error<E>> {
+    pub fn read_orp_voltage(&mut self) -> Result<f32, ads1x1x::Error<EI>> {
         self.orp_ec_take();
         self.orp_ec.read_voltage()
     }
