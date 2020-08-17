@@ -3,7 +3,7 @@
 
 use embedded_hal::blocking::delay::DelayMs;
 use linux_embedded_hal::{Delay, Pin, Spidev};
-use anyleaf::{Rtd, CalPtT, RtdType, RtdWires};
+use anyleaf::{Rtd, RtdType, RtdWires};
 
 fn main() {
     let mut spi = Spidev::open("/dev/spidev0.0").unwrap();

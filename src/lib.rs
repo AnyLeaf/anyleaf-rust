@@ -782,8 +782,8 @@ impl<CS: OutputPin> Rtd<CS> {
         let mut sensor = sensor.unwrap_or_else(|_| panic!("Problem setting up temp sensor."));
 
         let ref_R = match type_ {
-            RtdType::Pt100 => 100,
-            RtdType::Pt1000 => 1_000,
+            RtdType::Pt100 => 300,
+            RtdType::Pt1000 => 3_000,
         };
         // Set cal to the circuit's reference resistance * 100.
         sensor
@@ -865,7 +865,7 @@ impl<CS: OutputPin> Rtd<CS> {
 /// Output ranges from -32_768 to +32_767.
 pub fn voltage_from_adc(digi: i16) -> f32 {
     let vref = 2.048;
-    (digi as f32 / 32_767.) * vref
+    (digi as f32 / 32_768.) * vref
 }
 
 /// Compute the result of a Lagrange polynomial of order 3.

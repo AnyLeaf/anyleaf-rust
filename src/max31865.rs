@@ -277,6 +277,9 @@ static LOOKUP_TABLE: &[TempPair] = &[
 ///
 /// *Note*: This won't handle edge cases very well.
 fn lookup_temperature(val: u16, type_: RtdType) -> u32 {
+
+    // todo: Take into account nominal resistance here, eg 100 or 1000ohm.
+
     let mut first = &(0, 10000);
     let mut second = &(1000, 10390);
     let mut iterator = LOOKUP_TABLE.iter();
