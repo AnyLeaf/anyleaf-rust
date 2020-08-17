@@ -7,7 +7,7 @@ use anyleaf::{Rtd, CalPtT, RtdType, RtdWires};
 
 fn main() {
     let mut spi = Spidev::open("/dev/spidev0.0").unwrap();
-    let mut cs = Pin::new(5);
+    let cs = Pin::new(5);
 
     let mut rtd = Rtd::new(&mut spi, cs, RtdType::Pt100, RtdWires::Three);
 

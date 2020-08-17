@@ -290,6 +290,7 @@ fn lookup_temperature(val: u16, type_: RtdType) -> u32 {
     let second = iterator.next();
 
     if let Some(second) = second {
+        // todo: This panics if no device is connected.
         let temp = (second.0 - first.0) as u32 * (val - first.1) as u32
             / (second.1 - first.1) as u32
             + first.0 as u32;
