@@ -68,7 +68,7 @@ extern crate nb;
 
 use ads1x1x::{
     self,
-    channel::{DifferentialA0A1, SingleA2, SingleA3},
+    channel::{DifferentialA0A1, SingleA2},
     ic::{Ads1115, Resolution16Bit},
     interface::I2cInterface,
     Ads1x1x, SlaveAddr,
@@ -817,7 +817,7 @@ where
         let T = self.read_temp(spi)?;
 
         self.orp_take();
-        match self.ec.read(spi, &mut self.orp.adc.unwrap(), delay, T) {
+        match self.ec.read(spi, &mut self.orp.adc.as_mut().unwrap(), delay, T) {
             Ok(v) => Ok(v),
             Err(e) => Err(SensorError::Bus),
         }

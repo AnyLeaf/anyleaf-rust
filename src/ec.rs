@@ -213,7 +213,7 @@ where
     PWM1: PwmPin,
     PWM2: PwmPin,
 {
-    pub fn new(cs_dac: CS, switch_pins: (P0, P1, P2), mut pwm: (PWM0, PWM1, PWM2)) -> Self {
+    pub fn new(cs_dac: CS, switch_pins: (P0, P1, P2), pwm: (PWM0, PWM1, PWM2)) -> Self {
         // PWM pins must be already configured with frequency of 94Hz.
 
         // todo: Setting duty temporarily moved back to main fn. Put here once
@@ -248,7 +248,7 @@ where
         set_v_exc(spi, &mut self.dac, v_exc);
 
         // Read ADC Input V+ and V-
-        let (v_p, v_m) = self.read_voltage(adc)?;
+        let (mut v_p, mut v_m) = self.read_voltage(adc)?;
 
         let v_def = 0.1; // todo: Figure out what this means. Check the AD community thread.
 
@@ -274,20 +274,21 @@ where
     pub(crate) fn read_voltage<I2C, EI>(
         &self,
         adc: &mut crate::Adc<I2C>,
+    // ) -> Result<(f32, f32), ads1x1x::Error<E>>
     ) -> Result<(f32, f32), EI>
     where
         I2C: i2c::WriteRead<Error = EI> + i2c::Write<Error = EI> + i2c::Read<Error = EI>,
     {
         // We use two additional pins on the same ADC as the ORP sensor.
-        let v_p = block!(adc
-            .as_mut()
-            .expect("Measurement after I2C freed")
-            .read(&mut SingleA2))?;
+        let v_p = crate::voltage_from_adc(block!(adc
+            // .as_mut()
+            // .expect("Measurement after I2C freed")
+            .read(&mut SingleA2)).unwrap_or(35));  // todo temp unwrap due to Error type mismatches.
 
-        let v_m = block!(adc
-            .as_mut()
-            .expect("Measurement after I2C freed")
-            .read(&mut SingleA3))?;
+        let v_m = crate::voltage_from_adc(block!(adc
+            // .as_mut()
+            // .expect("Measurement after I2C freed")
+            .read(&mut SingleA3)).unwrap_or(35));  // todo temp unwrap
 
         Ok((v_p, v_m))
     }
