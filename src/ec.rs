@@ -11,7 +11,10 @@ use embedded_hal::{
 };
 
 use crate::mcp4921::{self, Mcp4921};
-use ads1x1x::{self, channel::{SingleA2, SingleA3}};
+use ads1x1x::{
+    self,
+    channel::{SingleA2, SingleA3},
+};
 
 // Frequencies for the PWM channels.
 const F_LOW: u16 = 94; // uS range
@@ -227,14 +230,14 @@ where
     }
 
     /// Set gain and excitation voltage, as an auto-ranging procedure. See CN-0411: Table 12.
-    fn set_range<SPI, E, I2C, CsRtd, EI>(
+    fn set_range<SPI, E, I2C, EI>(
         &mut self,
         spi: &mut SPI,
-        sensors: &mut anyleaf::WaterMonitor<I2C, CsRtd, EI>,
-    ) -> Result<(), EI> where
+        adc: &mut crate::Adc<I2C>,
+    ) -> Result<(), EI>
+    where
         SPI: spi::Write<u8, Error = E>,
         I2C: i2c::WriteRead<Error = EI> + i2c::Write<Error = EI> + i2c::Read<Error = EI>,
-        CsRtd: OutputPin,
     {
         // Set multiplexer to highest gain resistance
         let mut gain = EcGain::Eight;
@@ -245,7 +248,7 @@ where
         set_v_exc(spi, &mut self.dac, v_exc);
 
         // Read ADC Input V+ and V-
-        let (v_p, v_m) = self.read_voltage(sensors)?;
+        let (v_p, v_m) = self.read_voltage(adc)?;
 
         let v_def = 0.1; // todo: Figure out what this means. Check the AD community thread.
 
@@ -254,7 +257,7 @@ where
 
             // todo: DRY!
             // Read ADC Input V+ and V-
-            let readings = self.read_voltage(sensors)?;
+            let readings = self.read_voltage(adc)?;
             v_p = readings.0;
             v_m = readings.1;
         }
@@ -266,29 +269,25 @@ where
         Ok(())
     }
 
-    // Read the two voltages associated with ec measurement from the ADC.
-    fn read_voltage<I2C, CsRtd, EI>(
+    /// Read the two voltages associated with ec measurement from the ADC.
+    /// Assumes the measurement process has already been set up.
+    pub(crate) fn read_voltage<I2C, EI>(
         &self,
-        adc: &mut ads1x1x::interface::I2cInterface<I2C>,
+        adc: &mut crate::Adc<I2C>,
     ) -> Result<(f32, f32), EI>
     where
         I2C: i2c::WriteRead<Error = EI> + i2c::Write<Error = EI> + i2c::Read<Error = EI>,
-        CsRtd: OutputPin,
     {
         // We use two additional pins on the same ADC as the ORP sensor.
-        let v_p =
-            block!(adc
-                .as_mut()
-                .expect("Measurement after I2C freed")
-                .read(&mut SingleA2))?
-        );
+        let v_p = block!(adc
+            .as_mut()
+            .expect("Measurement after I2C freed")
+            .read(&mut SingleA2))?;
 
-        let v_m = anyleaf::voltage_from_adc(
-            block!(adc
-                .as_mut()
-                .expect("Measurement after I2C freed")
-                .read(&mut SingleA3))?,
-        );
+        let v_m = block!(adc
+            .as_mut()
+            .expect("Measurement after I2C freed")
+            .read(&mut SingleA3))?;
 
         Ok((v_p, v_m))
     }
@@ -296,17 +295,17 @@ where
     /// Take a conductivity measurement. Result is in uS/cm
     /// todo: Way to read TDS (sep fn, or perhaps an enum)
     /// todo: Return result or option.
-    pub fn read<SPI, D, I2C, CsRtd, EI, E>(
+    pub fn read<SPI, D, I2C, EI, E>(
         &mut self,
         spi: &mut SPI,
-        adc: &mut ads1x1x::interface::I2cInterface<I2C>,
+        adc: &mut crate::Adc<I2C>,
         delay: &mut D,
+        T: f32,
     ) -> Result<f32, EI>
     where
         SPI: spi::Write<u8, Error = E>,
         D: DelayUs<u16> + DelayMs<u16>,
         I2C: i2c::WriteRead<Error = EI> + i2c::Write<Error = EI> + i2c::Read<Error = EI>,
-        CsRtd: OutputPin,
     {
         // Wake up the DAC from its low-power shutdown mode.
         let cmd = mcp4921::Command::default();
@@ -314,7 +313,7 @@ where
         self.dac.send(spi, cmd).ok();
 
         start_pwm(&mut self.pwm.0, &mut self.pwm.1, &mut self.pwm.2, delay);
-        self.set_range(spi, sensors);
+        self.set_range(spi, adc);
 
         delay.delay_ms(200); // todo experiment
 
@@ -327,7 +326,12 @@ where
         let cmd = cmd.channel(mcp4921::Channel::Ch0).shutdown();
         self.dac.send(spi, cmd).ok();
 
-        // todo: Turn on/set and turn off DAC.
-        Ok(69.)
+        Ok(v_p + v_m) // todo
     }
+}
+
+/// Map ec voltage to temperature.
+fn ec_from_voltage(V: f32, temp: f32) -> f32 {
+    // todo
+    V
 }
