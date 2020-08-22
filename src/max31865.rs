@@ -31,37 +31,22 @@ pub struct Max31865<CS: OutputPin> {
     // spi: SPI,
     cs: CS,
     type_: RtdType,
+    wires: RtdWires,
     calibration: u32,
 }
 
-impl<CS> Max31865<CS>
-where
-    // SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
-    CS: OutputPin,
-{
+impl<CS: OutputPin> Max31865<CS> {
     /// Create a new MAX31865 module.
-    ///
-    /// # Arguments
-    ///
-    /// * `spi` - The SPI module to communicate on.
-    /// * `cs` - The chip select pin which should be set to a push pull output pin.
-    ///
-    pub fn new<E>(
-        // spi: SPI,
-        mut cs: CS,
-        type_: RtdType,
-    ) -> Result<Max31865<CS>, E> {
+    pub fn new(mut cs: CS, type_: RtdType, wires: RtdWires) -> Max31865<CS> {
         let default_calib = 40000;
 
         cs.set_high().ok();
-        let max31865 = Max31865 {
-            // spi,
+        Self {
             cs,
             type_,
+            wires,
             calibration: default_calib, /* value in ohms multiplied by 100 */
-        };
-
-        Ok(max31865)
+        }
     }
 
     /// Updates the devices configuration.
@@ -86,13 +71,12 @@ where
         vbias: bool,
         conversion_mode: bool,
         one_shot: bool,
-        wires: RtdWires,
         filter_mode: FilterMode,
     ) -> Result<(), E>
     where
         SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
-        let wires = match wires {
+        let wires = match self.wires {
             RtdWires::Two => 0,
             RtdWires::Three => 1,
             RtdWires::Four => 0,
@@ -170,9 +154,8 @@ where
     /// When the module is finished converting the temperature it sets the
     /// ready pin to low. It is automatically returned to high upon reading the
     /// RTD registers.
-    pub fn is_ready<E, I: InputPin>(&self, rdy: I) -> bool {
-        // pub fn is_ready<E, I: InputPin>(&self, rdy: I) -> Result<bool, E> {
-        rdy.is_low().unwrap_or(false)
+    pub fn is_ready<I: InputPin<Error = E>, E>(&self, rdy: I) -> Result<bool, E> {
+        rdy.is_low()
     }
 
     fn read<SPI, E>(&mut self, spi: &mut SPI, reg: Register) -> Result<u8, E>
@@ -277,7 +260,6 @@ static LOOKUP_TABLE: &[TempPair] = &[
 ///
 /// *Note*: This won't handle edge cases very well.
 fn lookup_temperature(val: u16, type_: RtdType) -> u32 {
-
     // todo: Take into account nominal resistance here, eg 100 or 1000ohm.
 
     let mut first = &(0, 10000);

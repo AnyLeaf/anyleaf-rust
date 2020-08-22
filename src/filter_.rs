@@ -6,7 +6,7 @@ use nalgebra::{
 use num_traits::float::FloatCore;
 
 /// Initialize the kalman filter. dt is the time between measurements, in seconds.
-pub fn create(_dt: f32) -> KalmanFilter<f32, U2, U1, U1> {
+pub fn create(_dt: f32, std: f32) -> KalmanFilter<f32, U2, U1, U1> {
     let mut kf = KalmanFilter::default();
 
     // The initialization value doesn't matter much, since the filter
@@ -35,6 +35,6 @@ pub fn create(_dt: f32) -> KalmanFilter<f32, U2, U1, U1> {
 
     // todo: How do we match this with the py code equivalent that uses
     // todo discrete white noise, and compensates for dt?
-    kf.Q = Matrix2::repeat(crate::PH_STD.powi(2));
+    kf.Q = Matrix2::repeat(std.powi(2));
     kf
 }
