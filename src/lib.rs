@@ -749,14 +749,14 @@ where
 
         let pH = match self.ph.read(TempSource::OffBoard(T2)) {
             Ok(v) => Ok(v),
-            Err(e) => Err(SensorError::Bus),
+            Err(_) => Err(SensorError::Bus),
         };
 
         self.orp.unfree(self.ph.free());
 
         let ORP = match self.orp.read() {
             Ok(v) => Ok(v),
-            Err(e) => Err(SensorError::Bus),
+            Err(_) => Err(SensorError::Bus),
         };
         //        let ec = self.orp_ec.read_ec(TempSource::OffBoard(T2));
         let ec = Ok(0.); // todo impl once you get new ec circuit working.
@@ -781,7 +781,7 @@ where
     {
         match self.rtd.read(spi) {
             Ok(v) => Ok(v),
-            Err(e) => Err(SensorError::Bus),
+            Err(_) => Err(SensorError::Bus),
         }
     }
 
@@ -795,7 +795,7 @@ where
         self.ph_take();
         match self.ph.read(t) {
             Ok(v) => Ok(v),
-            Err(e) => Err(SensorError::Bus),
+            Err(_) => Err(SensorError::Bus),
         }
     }
 
@@ -804,7 +804,7 @@ where
         self.orp_take();
         match self.orp.read() {
             Ok(v) => Ok(v),
-            Err(e) => Err(SensorError::Bus),
+            Err(_) => Err(SensorError::Bus),
         }
     }
 
@@ -819,7 +819,7 @@ where
         self.orp_take();
         match self.ec.read(spi, &mut self.orp.adc.as_mut().unwrap(), delay, T) {
             Ok(v) => Ok(v),
-            Err(e) => Err(SensorError::Bus),
+            Err(_) => Err(SensorError::Bus),
         }
     }
 
@@ -829,7 +829,7 @@ where
 
         match self.ph.read_voltage() {
             Ok(v) => Ok(v),
-            Err(e) => Err(SensorError::Bus),
+            Err(_) => Err(SensorError::Bus),
         }
     }
 
@@ -839,7 +839,7 @@ where
 
         match self.orp.read_voltage() {
             Ok(v) => Ok(v),
-            Err(e) => Err(SensorError::Bus),
+            Err(_) => Err(SensorError::Bus),
         }
     }
 

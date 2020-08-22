@@ -174,17 +174,17 @@ pub enum Error<E> {
     /// The value provided does not fit the bitness of the current device
     InvalidValue,
     /// Buffering is not available in the current device (MCP48xx)
-    BufferingNotSupported,
+    _BufferingNotSupported,
 }
 
 /// SPI mode (CPOL = 0, CPHA = 0)
-pub const MODE0: Mode = Mode {
+pub const _MODE0: Mode = Mode {
     phase: Phase::CaptureOnFirstTransition,
     polarity: Polarity::IdleLow,
 };
 
 /// SPI mode (CPOL = 1, CPHA = 1)
-pub const MODE1: Mode = Mode {
+pub const _MODE1: Mode = Mode {
     phase: Phase::CaptureOnSecondTransition,
     polarity: Polarity::IdleHigh,
 };
@@ -262,7 +262,7 @@ pub enum Channel {
     ///
     /// Sending a command on this channel to a single channel device will
     /// return an `Error::InvalidChannel`.
-    Ch1,
+    _Ch1,
 }
 
 /// Configurable command that can be sent to the device
@@ -314,28 +314,28 @@ impl Command {
     }
 
     /// Send the value buffered
-    pub fn buffered(self) -> Self {
+    pub fn _buffered(self) -> Self {
         let mut cmd = self;
         cmd.buffered = true;
         cmd
     }
 
     /// Send the value unbuffered
-    pub fn unbuffered(self) -> Self {
+    pub fn _unbuffered(self) -> Self {
         let mut cmd = self;
         cmd.buffered = false;
         cmd
     }
 
     /// Send the value with double gain (2x)
-    pub fn double_gain(self) -> Self {
+    pub fn _double_gain(self) -> Self {
         let mut cmd = self;
         cmd.double_gain = true;
         cmd
     }
 
     /// Send the value with single gain (1x)
-    pub fn single_gain(self) -> Self {
+    pub fn _single_gain(self) -> Self {
         let mut cmd = self;
         cmd.double_gain = false;
         cmd

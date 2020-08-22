@@ -17,8 +17,8 @@ use ads1x1x::{
 };
 
 // Frequencies for the PWM channels.
-const F_LOW: u16 = 94; // uS range
-const F_HIGH: u16 = 2_400; // mS range
+// const F_LOW: u16 = 94; // uS range
+// const F_HIGH: u16 = 2_400; // mS range
 
 #[derive(Clone, Copy, Debug)]
 pub enum EcGain {
@@ -314,7 +314,7 @@ where
         self.dac.send(spi, cmd).ok();
 
         start_pwm(&mut self.pwm.0, &mut self.pwm.1, &mut self.pwm.2, delay);
-        self.set_range(spi, adc);
+        self.set_range(spi, adc)?;
 
         delay.delay_ms(200); // todo experiment
 

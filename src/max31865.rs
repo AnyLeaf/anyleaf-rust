@@ -17,7 +17,7 @@ use crate::{RtdType, RtdWires};
 #[cfg(feature = "doc")]
 pub use examples;
 
-pub const MODE: Mode = Mode {
+pub const _MODE: Mode = Mode {
     phase: Phase::CaptureOnSecondTransition,
     polarity: Polarity::IdleHigh,
 };
@@ -154,7 +154,7 @@ impl<CS: OutputPin> Max31865<CS> {
     /// When the module is finished converting the temperature it sets the
     /// ready pin to low. It is automatically returned to high upon reading the
     /// RTD registers.
-    pub fn is_ready<I: InputPin<Error = E>, E>(&self, rdy: I) -> Result<bool, E> {
+    pub fn _is_ready<I: InputPin<Error = E>, E>(&self, rdy: I) -> Result<bool, E> {
         rdy.is_low()
     }
 
