@@ -6,7 +6,7 @@
 #![no_main]
 #![no_std]
 
-use cortex_m::{self, iprintln};
+use cortex_m;
 use cortex_m_rt::entry;
 use stm32f3xx_hal as hal;
 use hal::{delay::Delay, i2c::I2c, prelude::*, stm32};
