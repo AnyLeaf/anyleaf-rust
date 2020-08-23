@@ -11,7 +11,7 @@ use cortex_m_rt::entry;
 use stm32f3xx_hal as hal;
 use hal::{delay::Delay, i2c::I2c, prelude::*, stm32};
 use embedded_hal::blocking::delay::DelayMs;
-
+use rtt_target::{rprintln, rtt_init_print};
 use anyleaf::{Rtd, CalPtT, RtdType, RtdWires};
 
 #[entry]
