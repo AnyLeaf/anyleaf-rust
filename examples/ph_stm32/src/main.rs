@@ -8,7 +8,6 @@
 
 use cortex_m::{self, iprintln};
 use cortex_m_rt::entry;
-use cortex_m_semihosting::hprintln;
 use stm32f3xx_hal as hal;
 use hal::{delay::Delay, i2c::I2c, prelude::*, stm32};
 use embedded_hal::blocking::delay::DelayMs;
@@ -20,6 +19,8 @@ use anyleaf::{PhSensor, CalPt, CalSlot, TempSource};
 
 #[entry]
 fn main() -> ! {
+    rtt_init_print!();
+
     // Set up i2C.
     let mut cp = cortex_m::Peripherals::take().unwrap();
     let dp = stm32::Peripherals::take().unwrap();
@@ -48,8 +49,17 @@ fn main() -> ! {
 
     loop {
         let pH = ph_sensor.read(TempSource::OnBoard).unwrap();
-        hprintln!("pH: {}", pH).unwrap();
+        rprintln!("pH: {}", pH).unwrap();
 
         delay.delay_ms(dt as u16 * 1000);
     }
+}
+
+// This handler will cause a crash if present in Debug, and one if not present
+// in Release mode. We should be only building in release mode, since it offers
+// a large performance boost. So much so, that any increase in compile time
+// is offset by the faster init speed.
+#[panic_handler]
+fn my_panic(_info: &core::panic::PanicInfo) -> ! {
+    loop {}
 }

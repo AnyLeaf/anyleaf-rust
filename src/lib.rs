@@ -747,22 +747,27 @@ where
         // todo: TEMP TS until you get max316 into WM
         // let T2 = 20.;
 
-        let pH = match self.ph.read(TempSource::OffBoard(T2)) {
-            Ok(v) => Ok(v),
-            Err(_) => Err(SensorError::Bus),
-        };
+        // let pH = match self.ph.read(TempSource::OffBoard(T2)) {
+        //     Ok(v) => Ok(v),
+        //     Err(_) => Err(SensorError::Bus),
+        // };
+        //
+        // self.orp.unfree(self.ph.free());
+        //
+        // let ORP = match self.orp.read() {
+        //     Ok(v) => Ok(v),
+        //     Err(_) => Err(SensorError::Bus),
+        // };
+        // //        let ec = self.orp_ec.read_ec(TempSource::OffBoard(T2));
+        // let ec = Ok(0.); // todo impl once you get new ec circuit working.
+        //
+        // // Assume the ph_temp ADC has I2C by default.
+        // self.ph.unfree(self.orp.free());
 
-        self.orp.unfree(self.ph.free());
-
-        let ORP = match self.orp.read() {
-            Ok(v) => Ok(v),
-            Err(_) => Err(SensorError::Bus),
-        };
-        //        let ec = self.orp_ec.read_ec(TempSource::OffBoard(T2));
-        let ec = Ok(0.); // todo impl once you get new ec circuit working.
-
-        // Assume the ph_temp ADC has I2C by default.
-        self.ph.unfree(self.orp.free());
+        let T2 = 0.;
+        let ORP = Ok(0.);
+        let ec = Ok(0.);
+        let pH = Ok(0.);
 
         // todo: temp Ok(T2)! You ran into an issue with unwrap taking ownership.
         // todo: Make it throw the error instead of your dummy value of 20. if there's an error.
