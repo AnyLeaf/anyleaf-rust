@@ -12,9 +12,6 @@ use stm32f3xx_hal as hal;
 use hal::{delay::Delay, i2c::I2c, prelude::*, stm32};
 use embedded_hal::blocking::delay::DelayMs;
 
-#[cfg(debug_assertions)]
-extern crate panic_semihosting;
-
 use anyleaf::{Rtd, CalPtT, RtdType, RtdWires};
 
 #[entry]
