@@ -327,7 +327,7 @@ where
         let cmd = cmd.channel(mcp4921::Channel::Ch0).shutdown();
         self.dac.send(spi, cmd).ok();
 
-        Ok(v_p + v_m) // todo
+        Ok(ec_from_voltage(v_p + v_m, 24.)) // todo
     }
 }
 

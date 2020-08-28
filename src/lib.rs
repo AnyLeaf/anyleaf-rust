@@ -565,8 +565,8 @@ pub struct Rtd<CS: OutputPin> {
 
 impl<CS: OutputPin> Rtd<CS> {
     pub fn new<SPI, E>(spi: &mut SPI, cs: CS, type_: RtdType, wires: RtdWires) -> Self
-    where
-        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+        where
+            SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
         let mut sensor = Max31865::new(cs, type_, wires);
 
@@ -601,8 +601,8 @@ impl<CS: OutputPin> Rtd<CS> {
 
     /// Set filter mode to 50Hz AC noise, eg in Europe. Defaults to 60Hz for US.
     pub fn set_50hz<SPI, E>(&mut self, spi: &mut SPI) -> Result<(), E>
-    where
-        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+        where
+            SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
         self.sensor.configure(
             spi,
@@ -617,8 +617,8 @@ impl<CS: OutputPin> Rtd<CS> {
 
     /// Measure temperature, in Celsius
     pub fn read<SPI, E>(&mut self, spi: &mut SPI) -> Result<f32, E>
-    where
-        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+        where
+            SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
         match self.sensor.read_default_conversion(spi) {
             Ok(val) => Ok(val as f32 / 100.),
@@ -631,8 +631,8 @@ impl<CS: OutputPin> Rtd<CS> {
     /// `calib` as `(13851 << 15) / raw >> 1`.
     /// todo: Sort this out.
     pub fn calibrate<SPI, E>(&mut self, spi: &mut SPI) -> Result<(), E>
-    where
-        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+        where
+            SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
         let raw = self.sensor.read_raw(spi)?;
         //        self.sensor.set_calibration(  // todo: Fix
@@ -670,35 +670,35 @@ pub struct Readings {
 // todo: Be able to properly fail for both SPI and I2C errors. We currently
 // todo: only properly handle I2C ones.
 pub struct WaterMonitor<I2C, CsRtd, CsEc, P0, P1, P2, PWM0, PWM1, PWM2, EI>
-where
-    I2C: WriteRead<Error = EI> + Write<Error = EI> + Read<Error = EI>,
-    CsRtd: OutputPin,
-    CsEc: OutputPin,
-    P0: OutputPin,
-    P1: OutputPin,
-    P2: OutputPin,
-    PWM0: PwmPin,
-    PWM1: PwmPin,
-    PWM2: PwmPin,
+    where
+        I2C: WriteRead<Error = EI> + Write<Error = EI> + Read<Error = EI>,
+        CsRtd: OutputPin,
+        CsEc: OutputPin,
+        P0: OutputPin,
+        P1: OutputPin,
+        P2: OutputPin,
+        PWM0: PwmPin,
+        PWM1: PwmPin,
+        PWM2: PwmPin,
 {
     rtd: Rtd<CsRtd>,                    // Max31865 RTD chip.
-    ph: PhSensor<I2C, EI>,              // at 0x48. Inludes the temp sensor at input A3.
-    pub(crate) orp: OrpSensor<I2C, EI>, // at 0x49. Inlucdes the ec sensor at input A3.
-    ec: EcSensor<CsEc, P0, P1, P2, PWM0, PWM1, PWM2>,
+ph: PhSensor<I2C, EI>,              // at 0x48. Inludes the temp sensor at input A3.
+pub(crate) orp: OrpSensor<I2C, EI>, // at 0x49. Inlucdes the ec sensor at input A3.
+ec: EcSensor<CsEc, P0, P1, P2, PWM0, PWM1, PWM2>,
 }
 
 impl<I2C, CsRtd, CsEc, P0, P1, P2, PWM0, PWM1, PWM2, EI>
-    WaterMonitor<I2C, CsRtd, CsEc, P0, P1, P2, PWM0, PWM1, PWM2, EI>
-where
-    I2C: WriteRead<Error = EI> + Write<Error = EI> + Read<Error = EI>,
-    CsRtd: OutputPin,
-    CsEc: OutputPin,
-    P0: OutputPin,
-    P1: OutputPin,
-    P2: OutputPin,
-    PWM0: PwmPin,
-    PWM1: PwmPin,
-    PWM2: PwmPin,
+WaterMonitor<I2C, CsRtd, CsEc, P0, P1, P2, PWM0, PWM1, PWM2, EI>
+    where
+        I2C: WriteRead<Error = EI> + Write<Error = EI> + Read<Error = EI>,
+        CsRtd: OutputPin,
+        CsEc: OutputPin,
+        P0: OutputPin,
+        P1: OutputPin,
+        P2: OutputPin,
+        PWM0: PwmPin,
+        PWM1: PwmPin,
+        PWM2: PwmPin,
 {
     pub fn new<SPI, ES>(
         spi: &mut SPI,
@@ -709,8 +709,8 @@ where
         pwm: (PWM0, PWM1, PWM2),
         dt: f32,
     ) -> Self
-    where
-        SPI: spi::Write<u8, Error = ES> + spi::Transfer<u8, Error = ES>,
+        where
+            SPI: spi::Write<u8, Error = ES> + spi::Transfer<u8, Error = ES>,
     {
         let rtd = Rtd::new(spi, cs_rtd, RtdType::Pt100, RtdWires::Three);
 
@@ -733,45 +733,24 @@ where
     }
 
     // Read all sensors.
-    pub fn read_all<SPI, ES>(&mut self, spi: &mut SPI) -> Readings
-    where
-        SPI: spi::Write<u8, Error = ES> + spi::Transfer<u8, Error = ES>,
+    pub fn read_all<SPI, ES, D>(&mut self, spi: &mut SPI, delay: &mut D) -> Readings
+        where
+            SPI: spi::Write<u8, Error = ES> + spi::Transfer<u8, Error = ES>,
+            D: DelayUs<u16> + DelayMs<u16>,
     {
-        self.ph_take();
-
         let T = self.read_temp(spi);
         // Don't invalidate the temperature-compensated readings just because
         // we have a problem reading temperature. The user will have to note
         // that they may have errors due to this, but still take the readings.
         let T2 = T.unwrap_or(20.);
-        // todo: TEMP TS until you get max316 into WM
-        // let T2 = 20.;
 
-        // let pH = match self.ph.read(TempSource::OffBoard(T2)) {
-        //     Ok(v) => Ok(v),
-        //     Err(_) => Err(SensorError::Bus),
-        // };
-        //
-        // self.orp.unfree(self.ph.free());
-        //
-        // let ORP = match self.orp.read() {
-        //     Ok(v) => Ok(v),
-        //     Err(_) => Err(SensorError::Bus),
-        // };
-        // //        let ec = self.orp_ec.read_ec(TempSource::OffBoard(T2));
-        // let ec = Ok(0.); // todo impl once you get new ec circuit working.
-        //
-        // // Assume the ph_temp ADC has I2C by default.
-        // self.ph.unfree(self.orp.free());
+        // let pH = self.read_ph(T2);
+        let pH = Ok(6.);
+        let ORP = self.read_orp();
+        let ec = self.read_ec(spi, delay, T2);
 
-        let T2 = 0.;
-        let ORP = Ok(0.);
-        let ec = Ok(0.);
-        let pH = Ok(0.);
-
-        // todo: temp Ok(T2)! You ran into an issue with unwrap taking ownership.
-        // todo: Make it throw the error instead of your dummy value of 20. if there's an error.
         Readings {
+            // pH,
             pH,
             T: Ok(T2),
             ORP,
@@ -781,8 +760,8 @@ where
 
     /// Read temperature from the MAX31865 RTD IC.
     pub fn read_temp<SPI, ES>(&mut self, spi: &mut SPI) -> Result<f32, SensorError>
-    where
-        SPI: spi::Write<u8, Error = ES> + spi::Transfer<u8, Error = ES>,
+        where
+            SPI: spi::Write<u8, Error = ES> + spi::Transfer<u8, Error = ES>,
     {
         match self.rtd.read(spi) {
             Ok(v) => Ok(v),
@@ -791,14 +770,9 @@ where
     }
 
     /// Read pH from the `orp_ph` ADC.
-    pub fn read_ph<SPI, ES>(&mut self, spi: &mut SPI) -> Result<f32, SensorError>
-    where
-        SPI: spi::Write<u8, Error = ES> + spi::Transfer<u8, Error = ES>,
-    {
-        let t = TempSource::OffBoard(self.read_temp(spi)?);
-
+    pub fn read_ph<SPI, ES>(&mut self, T: f32) -> Result<f32, SensorError> {
         self.ph_take();
-        match self.ph.read(t) {
+        match self.ph.read(TempSource::OffBoard(T)) {
             Ok(v) => Ok(v),
             Err(_) => Err(SensorError::Bus),
         }
@@ -814,13 +788,11 @@ where
     }
 
     /// Read electrical conductivity.
-    pub fn read_ec<SPI, ES, D>(&mut self, spi: &mut SPI, delay: &mut D) -> Result<f32, SensorError>
-    where
-        SPI: spi::Write<u8, Error = ES> + spi::Transfer<u8, Error = ES>,
-        D: DelayUs<u16> + DelayMs<u16>,
+    pub fn read_ec<SPI, ES, D>(&mut self, spi: &mut SPI, delay: &mut D, T: f32) -> Result<f32, SensorError>
+        where
+            SPI: spi::Write<u8, Error = ES> + spi::Transfer<u8, Error = ES>,
+            D: DelayUs<u16> + DelayMs<u16>,
     {
-        let T = self.read_temp(spi)?;
-
         self.orp_take();
         match self.ec.read(spi, &mut self.orp.adc.as_mut().unwrap(), delay, T) {
             Ok(v) => Ok(v),
