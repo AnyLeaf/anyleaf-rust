@@ -20,7 +20,7 @@ use ads1x1x::{
 // const F_LOW: u16 = 94; // uS range
 // const F_HIGH: u16 = 2_400; // mS range
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum EcGain {
     // Gain 1 isn't used. We set it up this way
     // so the gains match with the S values.
@@ -252,7 +252,7 @@ where
 
         let v_def = 0.1; // todo: Figure out what this means. Check the AD community thread.
 
-        while v_p + v_m <= 0.3 * 2. * v_exc as f32 {
+        while v_p + v_m <= 0.3 * 2. * v_exc as f32 && gain != EcGain::Two {
             gain = gain.drop();
 
             // todo: DRY!
@@ -261,8 +261,8 @@ where
             v_p = readings.0;
             v_m = readings.1;
         }
-
-        // todo: Mind V vs mV
+        //
+        // // todo: Mind V vs mV
         v_exc = (v_def * (v_exc as f32) / (v_p + v_m)) as u16;
         set_v_exc(spi, &mut self.dac, v_exc);
 
@@ -274,21 +274,27 @@ where
     pub(crate) fn read_voltage<I2C, EI>(
         &self,
         adc: &mut crate::Adc<I2C>,
-    // ) -> Result<(f32, f32), ads1x1x::Error<E>>
+        // ) -> Result<(f32, f32), ads1x1x::Error<E>>
     ) -> Result<(f32, f32), EI>
     where
         I2C: i2c::WriteRead<Error = EI> + i2c::Write<Error = EI> + i2c::Read<Error = EI>,
     {
         // We use two additional pins on the same ADC as the ORP sensor.
-        let v_p = crate::voltage_from_adc(block!(adc
-            // .as_mut()
-            // .expect("Measurement after I2C freed")
-            .read(&mut SingleA2)).unwrap_or(35));  // todo temp unwrap due to Error type mismatches.
+        let v_p = crate::voltage_from_adc(
+            block!(adc
+                // .as_mut()
+                // .expect("Measurement after I2C freed")
+                .read(&mut SingleA2))
+            .unwrap_or(35),
+        ); // todo temp unwrap due to Error type mismatches.
 
-        let v_m = crate::voltage_from_adc(block!(adc
-            // .as_mut()
-            // .expect("Measurement after I2C freed")
-            .read(&mut SingleA3)).unwrap_or(35));  // todo temp unwrap
+        let v_m = crate::voltage_from_adc(
+            block!(adc
+                // .as_mut()
+                // .expect("Measurement after I2C freed")
+                .read(&mut SingleA3))
+            .unwrap_or(35),
+        ); // todo temp unwrap
 
         Ok((v_p, v_m))
     }
