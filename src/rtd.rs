@@ -26,18 +26,18 @@ enum Register {
     HIGH_FAULT_THRESHOLD_LSB_W = 0x84,
     LOW_FAULT_THRESHOLD_MSB_W = 0x85,
     LOW_FAULT_THRESHOLD_LSB_W = 0x86,
-    FAULT_STATUS = 0x07,    
+    FAULT_STATUS = 0x07,
 }
 
 // Configuration register definition. From Datasheet, Table 2.
-const VBIAS_OFF: u8 = 0x00;
-const VBIAS_ON: u8 = 0x01;
-const CONVERSION_MODE_OFF: u8 = 0x00;
-const CONVERSION_MODE_AUTO: u8 = 0x01;
-const ONE_SHOT: u8 = 0x01;  // auto-clear
+const _VBIAS_OFF: u8 = 0x00;
+const _VBIAS_ON: u8 = 0x01;
+const _CONVERSION_MODE_OFF: u8 = 0x00;
+const _CONVERSION_MODE_AUTO: u8 = 0x01;
+const _ONE_SHOT: u8 = 0x01; // auto-clear
 const TWO_OR_FOUR_WIRE: u8 = 0x00;
 const THREE_WIRE: u8 = 0x01;
-const FAULT_STATUS_CLEAR: u8 = 0x01;  // auto-clear
+const _FAULT_STATUS_CLEAR: u8 = 0x01; // auto-clear
 const FILTER_60HZ: u8 = 0x00;
 const FILTER_50_HZ: u8 = 0x01;
 
@@ -155,7 +155,6 @@ impl<CS: OutputPin> Rtd<CS> {
     where
         SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
-
         let wires = match self.wires {
             Wires::Two => TWO_OR_FOUR_WIRE,
             Wires::Three => THREE_WIRE,
@@ -263,6 +262,44 @@ impl<CS: OutputPin> Rtd<CS> {
         Ok(temp as f32 / 100.)
     }
 
+    /// Find the fault status
+    pub fn fault_status<SPI, E>(&mut self, spi: &mut SPI) -> Result<[bool; 6], E>
+    where
+        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+    {
+        // todo: REturn a string description, or enum.
+        let status = self.read_data(spi, Register::FAULT_STATUS)?;
+
+        let overv = status & (1 << (3 - 1)) > 0;
+        let rtdin = status & (1 << (4 - 1)) > 0;
+        let refin = status & (1 << (5 - 1)) > 0;
+        let refin2 = status & (1 << (6 - 1)) > 0;
+        let rtd_low = status & (1 << (7 - 1)) > 0;
+        let rtd_high = status & (1 << (8 - 1)) > 0;
+
+        Ok([overv, rtdin, refin, refin2, rtd_low, rtd_high])
+    }
+
+    /// Find the fault status
+    pub fn test<SPI, E>(&mut self, spi: &mut SPI) -> Result<[u8; 8], E>
+    where
+        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+    {
+        // todo: REturn a string description, or enum.
+        let status = self.read_data(spi, Register::CONFIG)?;
+
+        Ok([
+            status & (1 << (1 - 1)),
+            status & (1 << (2 - 1)),
+            status & (1 << (3 - 1)),
+            status & (1 << (4 - 1)),
+            status & (1 << (5 - 1)),
+            status & (1 << (6 - 1)),
+            status & (1 << (7 - 1)),
+            status & (1 << (8 - 1)),
+        ])
+    }
+
     /// (From driver notes:   You can perform calibration by putting the sensor in boiling (100 degrees
     /// Celcius) water and then measuring the raw value using `read_raw`. Calculate
     /// `calib` as `(13851 << 15) / raw >> 1`.
@@ -286,10 +323,9 @@ impl<CS: OutputPin> Rtd<CS> {
     where
         SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
+        // todo
         let raw = self.read_raw(spi)?;
-        //        self.sensor.set_calibration(  // todo: Fix
-        //            ((13851 << 15) / (raw >> 1)) as u32
-        //        );
+        self.calibration = ((13851 << 15) / (raw >> 1)) as u32;
 
         Ok(())
     }
@@ -316,6 +352,9 @@ type TempPair = (u16, u16);
 // while the second entry contains the temperature at that resistance
 // value multiplied by 10, i.e. at 0 deg C, the probe should have a resistance
 // of 100 ohms
+
+// todo: QC this, set it up for pt1000, and make sure it's what you want.
+// todo: Try checking the DS.
 static LOOKUP_TABLE: &[TempPair] = &[
     (0, 10000),
     (1000, 10390),

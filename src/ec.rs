@@ -4,17 +4,19 @@ use embedded_hal::{
     adc::OneShot,
     blocking::{
         delay::{DelayMs, DelayUs},
-        i2c, spi,
+        i2c,
     },
     digital::v2::OutputPin,
     PwmPin,
 };
 
-use crate::mcp4921::{self, Mcp4921};
 use ads1x1x::{
     self,
     channel::{SingleA2, SingleA3},
 };
+
+// todo: Once you make `DacTrait` more abstract, remove this.
+use stm32f3xx_hal::{dac::DacTrait, rcc::APB1};
 
 // Frequencies for the PWM channels.
 // const F_LOW: u16 = 94; // uS range
@@ -170,27 +172,12 @@ where
     p2.disable();
 }
 
-/// Set the excitation voltage to a specified value using the DAC.
-pub fn set_v_exc<CS, SPI, E>(spi: &mut SPI, dac: &mut Mcp4921<CS>, v: u16)
-where
-    SPI: spi::Write<u8, Error = E>,
-    CS: OutputPin,
-{
-    // v is in mV
-    let cmd = mcp4921::Command::default();
-    // todo: Test this.
-    let vref = 2.048;
-    let digital = (4_095 * v) as f32 / vref; // 12 bit adc.
-
-    dac.send(spi, cmd.value(digital as u16)).ok();
-}
-
 /// The high-level struct representing the EC circuit.
 #[derive(Debug)]
-pub struct EcSensor<CS, P0, P1, P2, PWM0, PWM1, PWM2>
+pub struct EcSensor<DAC, P0, P1, P2, PWM0, PWM1, PWM2>
 where
     // todo: There has ato be a way to keep these trait bounds local.
-    CS: OutputPin, // for the DAC.
+    DAC: DacTrait,
     P0: OutputPin,
     P1: OutputPin,
     P2: OutputPin,
@@ -198,14 +185,14 @@ where
     PWM1: PwmPin,
     PWM2: PwmPin,
 {
-    dac: Mcp4921<CS>,
+    dac: DAC,
     gain_switch: ADG1608<P0, P1, P2>,
     pwm: (PWM0, PWM1, PWM2),
 }
 
-impl<CS, P0, P1, P2, PWM0, PWM1, PWM2> EcSensor<CS, P0, P1, P2, PWM0, PWM1, PWM2>
+impl<DAC, P0, P1, P2, PWM0, PWM1, PWM2> EcSensor<DAC, P0, P1, P2, PWM0, PWM1, PWM2>
 where
-    CS: OutputPin,
+    DAC: DacTrait,
     P0: OutputPin,
     P1: OutputPin,
     P2: OutputPin,
@@ -213,7 +200,7 @@ where
     PWM1: PwmPin,
     PWM2: PwmPin,
 {
-    pub fn new(cs_dac: CS, switch_pins: (P0, P1, P2), pwm: (PWM0, PWM1, PWM2)) -> Self {
+    pub fn new(dac: DAC, switch_pins: (P0, P1, P2), pwm: (PWM0, PWM1, PWM2)) -> Self {
         // PWM pins must be already configured with frequency of 94Hz.
 
         // todo: Setting duty temporarily moved back to main fn. Put here once
@@ -223,29 +210,24 @@ where
         // pwm.2.set_duty(pwm.2.get_max_duty() / 6.); // 17% duty cyle
 
         Self {
-            dac: Mcp4921::new(cs_dac),
+            dac,
             gain_switch: ADG1608::new(switch_pins.0, switch_pins.1, switch_pins.2),
             pwm,
         }
     }
 
     /// Set gain and excitation voltage, as an auto-ranging procedure. See CN-0411: Table 12.
-    fn set_range<SPI, E, I2C, EI>(
-        &mut self,
-        spi: &mut SPI,
-        adc: &mut crate::Adc<I2C>,
-    ) -> Result<(), EI>
+    fn set_range<E, I2C>(&mut self, adc: &mut crate::Adc<I2C>) -> Result<(), E>
     where
-        SPI: spi::Write<u8, Error = E>,
-        I2C: i2c::WriteRead<Error = EI> + i2c::Write<Error = EI> + i2c::Read<Error = EI>,
+        I2C: i2c::WriteRead<Error = E> + i2c::Write<Error = E> + i2c::Read<Error = E>,
     {
         // Set multiplexer to highest gain resistance
         let mut gain = EcGain::Eight;
         self.gain_switch.set(gain);
 
         // Set DAC to Output V_EXC = 400mV
-        let mut v_exc = 400;
-        set_v_exc(spi, &mut self.dac, v_exc);
+        let mut v_exc = 0.4;
+        self.dac.set_voltage(v_exc);
 
         // Read ADC Input V+ and V-
         let (mut v_p, mut v_m) = self.read_voltage(adc)?;
@@ -263,21 +245,21 @@ where
         }
         //
         // // todo: Mind V vs mV
-        v_exc = (v_def * (v_exc as f32) / (v_p + v_m)) as u16;
-        set_v_exc(spi, &mut self.dac, v_exc);
+        v_exc = (v_def * (v_exc as f32) / (v_p + v_m));
+        self.dac.set_voltage(v_exc);
 
         Ok(())
     }
 
     /// Read the two voltages associated with ec measurement from the ADC.
     /// Assumes the measurement process has already been set up.
-    pub(crate) fn read_voltage<I2C, EI>(
+    pub(crate) fn read_voltage<I2C, E>(
         &self,
         adc: &mut crate::Adc<I2C>,
         // ) -> Result<(f32, f32), ads1x1x::Error<E>>
-    ) -> Result<(f32, f32), EI>
+    ) -> Result<(f32, f32), E>
     where
-        I2C: i2c::WriteRead<Error = EI> + i2c::Write<Error = EI> + i2c::Read<Error = EI>,
+        I2C: i2c::WriteRead<Error = E> + i2c::Write<Error = E> + i2c::Read<Error = E>,
     {
         // We use two additional pins on the same ADC as the ORP sensor.
         let v_p = crate::voltage_from_adc(
@@ -302,25 +284,22 @@ where
     /// Take a conductivity measurement. Result is in uS/cm
     /// todo: Way to read TDS (sep fn, or perhaps an enum)
     /// todo: Return result or option.
-    pub fn read<SPI, D, I2C, EI, E>(
+    pub fn read<D, I2C, E>(
         &mut self,
-        spi: &mut SPI,
         adc: &mut crate::Adc<I2C>,
         delay: &mut D,
         T: f32,
-    ) -> Result<f32, EI>
+        apb1: &mut APB1,
+    ) -> Result<f32, E>
     where
-        SPI: spi::Write<u8, Error = E>,
         D: DelayUs<u16> + DelayMs<u16>,
-        I2C: i2c::WriteRead<Error = EI> + i2c::Write<Error = EI> + i2c::Read<Error = EI>,
+        I2C: i2c::WriteRead<Error = E> + i2c::Write<Error = E> + i2c::Read<Error = E>,
     {
-        // Wake up the DAC from its low-power shutdown mode.
-        let cmd = mcp4921::Command::default();
-        let cmd = cmd.channel(mcp4921::Channel::Ch0).enable();
-        self.dac.send(spi, cmd).ok();
+        // [dis]enabling the dac each reading should improve battery usage.
+        self.dac.enable(apb1);
 
         start_pwm(&mut self.pwm.0, &mut self.pwm.1, &mut self.pwm.2, delay);
-        self.set_range(spi, adc)?;
+        self.set_range(adc)?;
 
         delay.delay_ms(200); // todo experiment
 
@@ -328,10 +307,7 @@ where
 
         stop_pwm(&mut self.pwm.0, &mut self.pwm.1, &mut self.pwm.2);
 
-        // Set the DAC to use its low-power shutdown mode.
-        let cmd = mcp4921::Command::default();
-        let cmd = cmd.channel(mcp4921::Channel::Ch0).shutdown();
-        self.dac.send(spi, cmd).ok();
+        self.dac.disable(apb1);
 
         Ok(ec_from_voltage(v_p + v_m, 24.)) // todo
     }

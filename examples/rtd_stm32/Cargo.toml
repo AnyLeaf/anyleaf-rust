@@ -5,14 +5,15 @@ authors = ["Anyleaf <anyleaf@anyleaf.org>"]
 edition = "2018"
 
 [dependencies]
-cortex-m = "0.6.2"
+cortex-m = "0.6.3"
 cortex-m-rt = "^0.6.12"
 stm32f3xx-hal = { version = "^0.4.3", features=["stm32f303xc", "rt"] }
 f3 ="^0.6.1"
 embedded-hal = "^0.2.4"
 rtt-target = { version = "0.2.0", features = ["cortex-m"] }
 
-anyleaf = "^0.1.7"
+#anyleaf = "^0.1.7"
+anyleaf = { path = "../.." }
 
 [profile.release]
 codegen-units = 1

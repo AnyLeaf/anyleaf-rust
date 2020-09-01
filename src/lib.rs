@@ -88,12 +88,13 @@ use nalgebra::{
     Vector1,
 };
 
+// todo: `embedded-hal` trait, and remove rcc::.... once merged.
+use stm32f3xx_hal::{dac::DacTrait, rcc::APB1};
+
 use num_traits::float::FloatCore; // Required to take absolute value in `no_std`.
 
 mod ec;
 mod filter_;
-// mod max31865;
-mod mcp4921;
 mod rtd;
 mod storage;
 
@@ -285,7 +286,7 @@ impl<I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>, E> PhSensor
     /// Take a pH reading, without using the Kalman filter
     // todo: find the right error type for nb/ads111x
     // todo: Error type: is this right? Read:Error instead?
-    pub fn read_raw(&mut self, t: TempSource) -> Result<f32, ads1x1x::Error<E>> {
+    fn read_raw(&mut self, t: TempSource) -> Result<f32, ads1x1x::Error<E>> {
         let T = match t {
             TempSource::OnBoard => temp_from_voltage(voltage_from_adc(block!(self
                 .adc
@@ -564,11 +565,11 @@ pub struct Readings {
 /// todo use it in its project code, although we could change that.
 // todo: Be able to properly fail for both SPI and I2C errors. We currently
 // todo: only properly handle I2C ones.
-pub struct WaterMonitor<I2C, CsRtd, CsEc, P0, P1, P2, PWM0, PWM1, PWM2, EI>
+pub struct WaterMonitor<I2C, CsRtd, DAC, P0, P1, P2, PWM0, PWM1, PWM2, EI>
 where
     I2C: WriteRead<Error = EI> + Write<Error = EI> + Read<Error = EI>,
     CsRtd: OutputPin,
-    CsEc: OutputPin,
+    DAC: DacTrait,
     P0: OutputPin,
     P1: OutputPin,
     P2: OutputPin,
@@ -576,18 +577,18 @@ where
     PWM1: PwmPin,
     PWM2: PwmPin,
 {
-    rtd: Rtd<CsRtd>,                    // Max31865 RTD chip.
-    ph: PhSensor<I2C, EI>,              // at 0x48. Inludes the temp sensor at input A3.
-    pub(crate) orp: OrpSensor<I2C, EI>, // at 0x49. Inlucdes the ec sensor at input A3.
-    ec: EcSensor<CsEc, P0, P1, P2, PWM0, PWM1, PWM2>,
+    pub rtd: Rtd<CsRtd>,         // Max31865 RTD chip.
+    pub ph: PhSensor<I2C, EI>,   // at 0x48. Inludes the temp sensor at input A3.
+    pub orp: OrpSensor<I2C, EI>, // at 0x49. Inlucdes the ec sensor at input A3.
+    pub ec: EcSensor<DAC, P0, P1, P2, PWM0, PWM1, PWM2>,
 }
 
-impl<I2C, CsRtd, CsEc, P0, P1, P2, PWM0, PWM1, PWM2, EI>
-    WaterMonitor<I2C, CsRtd, CsEc, P0, P1, P2, PWM0, PWM1, PWM2, EI>
+impl<I2C, CsRtd, DAC, P0, P1, P2, PWM0, PWM1, PWM2, EI>
+    WaterMonitor<I2C, CsRtd, DAC, P0, P1, P2, PWM0, PWM1, PWM2, EI>
 where
     I2C: WriteRead<Error = EI> + Write<Error = EI> + Read<Error = EI>,
     CsRtd: OutputPin,
-    CsEc: OutputPin,
+    DAC: DacTrait,
     P0: OutputPin,
     P1: OutputPin,
     P2: OutputPin,
@@ -599,7 +600,7 @@ where
         spi: &mut SPI,
         i2c: I2C,
         cs_rtd: CsRtd,
-        cs_ec: CsEc,
+        dac: DAC,
         switch_pins: (P0, P1, P2),
         pwm: (PWM0, PWM1, PWM2),
         dt: f32,
@@ -615,7 +616,7 @@ where
         let mut orp = OrpSensor::new_alt_addr(i2c, dt);
         ph.unfree(orp.free());
 
-        let ec = EcSensor::new(cs_ec, switch_pins, pwm);
+        let ec = EcSensor::new(dac, switch_pins, pwm);
 
         // todo: You should perhaps have these as options or results, so hardware failures like for
         // todo the RTD don't crash the program.
@@ -623,7 +624,13 @@ where
     }
 
     // Read all sensors.
-    pub fn read_all<SPI, ES, D>(&mut self, spi: &mut SPI, delay: &mut D) -> Readings
+    // apb1: todo temp
+    pub fn read_all<SPI, ES, D>(
+        &mut self,
+        spi: &mut SPI,
+        delay: &mut D,
+        apb1: &mut APB1,
+    ) -> Readings
     where
         SPI: spi::Write<u8, Error = ES> + spi::Transfer<u8, Error = ES>,
         D: DelayUs<u16> + DelayMs<u16>,
@@ -640,7 +647,7 @@ where
             pH: Err(SensorError::Bus),
             T,
             ORP: self.read_orp(),
-            ec: self.read_ec(spi, delay, T2),
+            ec: self.read_ec(delay, T2, apb1),
         }
     }
 
@@ -675,20 +682,14 @@ where
     }
 
     /// Read electrical conductivity.
-    pub fn read_ec<SPI, ES, D>(
-        &mut self,
-        spi: &mut SPI,
-        delay: &mut D,
-        T: f32,
-    ) -> Result<f32, SensorError>
+    pub fn read_ec<D>(&mut self, delay: &mut D, T: f32, apb1: &mut APB1) -> Result<f32, SensorError>
     where
-        SPI: spi::Write<u8, Error = ES> + spi::Transfer<u8, Error = ES>,
         D: DelayUs<u16> + DelayMs<u16>,
     {
         self.orp_take();
         match self
             .ec
-            .read(spi, &mut self.orp.adc.as_mut().unwrap(), delay, T)
+            .read(&mut self.orp.adc.as_mut().unwrap(), delay, T, apb1)
         {
             Ok(v) => Ok(v),
             Err(_) => Err(SensorError::Bus),

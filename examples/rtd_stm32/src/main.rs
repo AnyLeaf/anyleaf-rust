@@ -6,30 +6,39 @@
 #![no_main]
 #![no_std]
 
+use anyleaf::{Rtd, RtdType, Wires};
 use cortex_m;
 use cortex_m_rt::entry;
-use stm32f3xx_hal as hal;
-use hal::{delay::Delay, i2c::I2c, prelude::*, stm32};
 use embedded_hal::blocking::delay::DelayMs;
+use hal::{
+    delay::Delay,
+    prelude::*,
+    spi::{Mode, Phase, Polarity, Spi},
+    stm32,
+};
 use rtt_target::{rprintln, rtt_init_print};
-use anyleaf::{Rtd, CalPtT, RtdType, RtdWires};
+use stm32f3xx_hal as hal;
 
 #[entry]
 fn main() -> ! {
     rtt_init_print!();
 
     // Set up i2C.
-    let mut cp = cortex_m::Peripherals::take().unwrap();
+    let cp = cortex_m::Peripherals::take().unwrap();
     let dp = stm32::Peripherals::take().unwrap();
-
-    let stim = &mut cp.ITM.stim[0];
 
     let mut flash = dp.FLASH.constrain();
     let mut rcc = dp.RCC.constrain();
-    let clocks = rcc.cfgr.freeze(&mut flash.acr);
-    let mut delay = Delay::new(cp.SYST, clocks);
+    // let clocks = rcc.cfgr.freeze(&mut flash.acr);
 
-    le.GPIOB.split(&mut rcc.ahb); // PB GPIO pins
+  let clocks = rcc
+        .cfgr
+        // .use_hse(8.mhz())
+        // .sysclk(48.mhz())
+        // .pclk1(24.mhz())
+        .freeze(&mut flash.acr);
+
+    let mut delay = Delay::new(cp.SYST, clocks);
 
     // Set up SPI, where SCK is on PA5, MISO is on PA6, MOSI is on PA7, CS is on PA8,
     // and RDY is on PA9.
@@ -37,31 +46,35 @@ fn main() -> ! {
     let sck = gpioa.pa5.into_af5(&mut gpioa.moder, &mut gpioa.afrl);
     let miso = gpioa.pa6.into_af5(&mut gpioa.moder, &mut gpioa.afrl);
     let mosi = gpioa.pa7.into_af5(&mut gpioa.moder, &mut gpioa.afrl);
+
     let cs = gpioa
-        .pa8
+        .pa1
         .into_push_pull_output(&mut gpioa.moder, &mut gpioa.otyper);
 
     let spi_mode = Mode {
-        polarity: Polarity::IdleLow,
-        phase: Phase::CaptureOnFirstTransition,
+        // Must use SPI mode 1 or 3.
+        polarity: Polarity::IdleHigh,
+        phase: Phase::CaptureOnSecondTransition,
     };
 
     let mut spi = Spi::spi1(
         dp.SPI1,
         (sck, miso, mosi),
         spi_mode,
-        4.mhz(),
+        2.mhz(),
         clocks,
         &mut rcc.apb2,
     );
 
-    let dt = 1.; // Time between measurements, in seconds
-    let mut rtd = Rtd::new(&mut spi, cs, RtdType::Pt100, RtdWires::Three);
+    let mut rtd = Rtd::new(&mut spi, cs, RtdType::Pt100, Wires::Three);
 
     loop {
-        rprintln!("Temp: {}", rtd.read().unwrap());
+        rprintln!("Temp: {}°C", rtd.read(&mut spi).unwrap());
+        rprintln!("Resistance: {}Ω", rtd.read_resistance(&mut spi).unwrap());
+        // rprintln!("Faults: {:?}", rtd.fault_status(&mut spi).unwrap());
+        rprintln!("T: {:?}", rtd.test(&mut spi).unwrap());
 
-        delay.delay_ms(dt as u16 * 1000);
+        delay.delay_ms(2_000_u16);
     }
 }
 
