@@ -26,5 +26,5 @@ num-traits = { version = "0.2.11", default-features = false, features = ["libm"]
 # Pinning to the version used by `filter`, to avoid conflicting Trait requirements.
 nalgebra = { version = "0.21.0", default-features = false }
 
-# todo temp until dac trait more general
+# for the EC circuit, using STM32's DAC.
 stm32f3xx-hal = { path = "../../../../Desktop/stm32f3xx-hal", features = ["stm32f303xc", "rt"] }

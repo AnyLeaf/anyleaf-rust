@@ -69,8 +69,8 @@ fn main() -> ! {
     let mut rtd = Rtd::new(&mut spi, cs, RtdType::Pt100, Wires::Three);
 
     loop {
-        rprintln!("Temp: {}°C", rtd.read(&mut spi).unwrap());
-        rprintln!("Resistance: {}Ω", rtd.read_resistance(&mut spi).unwrap());
+        // rprintln!("Temp: {}°C", rtd.read(&mut spi).unwrap());
+        // rprintln!("Resistance: {}Ω", rtd.read_resistance(&mut spi).unwrap());
         // rprintln!("Faults: {:?}", rtd.fault_status(&mut spi).unwrap());
         rprintln!("T: {:?}", rtd.test(&mut spi).unwrap());
 

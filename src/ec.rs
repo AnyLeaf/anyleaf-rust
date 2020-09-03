@@ -15,8 +15,8 @@ use ads1x1x::{
     channel::{SingleA2, SingleA3},
 };
 
-// todo: Once you make `DacTrait` more abstract, remove this.
-use stm32f3xx_hal::{dac::DacTrait, rcc::APB1};
+// todo: Once you make `SingleChannelDac` more abstract, remove this.
+use stm32f3xx_hal::{dac::SingleChannelDac, rcc::APB1};
 
 // Frequencies for the PWM channels.
 // const F_LOW: u16 = 94; // uS range
@@ -177,7 +177,7 @@ where
 pub struct EcSensor<DAC, P0, P1, P2, PWM0, PWM1, PWM2>
 where
     // todo: There has ato be a way to keep these trait bounds local.
-    DAC: DacTrait,
+    DAC: SingleChannelDac,
     P0: OutputPin,
     P1: OutputPin,
     P2: OutputPin,
@@ -192,7 +192,7 @@ where
 
 impl<DAC, P0, P1, P2, PWM0, PWM1, PWM2> EcSensor<DAC, P0, P1, P2, PWM0, PWM1, PWM2>
 where
-    DAC: DacTrait,
+    DAC: SingleChannelDac,
     P0: OutputPin,
     P1: OutputPin,
     P2: OutputPin,
@@ -227,7 +227,7 @@ where
 
         // Set DAC to Output V_EXC = 400mV
         let mut v_exc = 0.4;
-        self.dac.set_voltage(v_exc);
+        self.dac.try_set_voltage(v_exc).ok();
 
         // Read ADC Input V+ and V-
         let (mut v_p, mut v_m) = self.read_voltage(adc)?;
@@ -246,7 +246,7 @@ where
         //
         // // todo: Mind V vs mV
         v_exc = (v_def * (v_exc as f32) / (v_p + v_m));
-        self.dac.set_voltage(v_exc);
+        self.dac.try_set_voltage(v_exc).ok();
 
         Ok(())
     }
@@ -296,7 +296,7 @@ where
         I2C: i2c::WriteRead<Error = E> + i2c::Write<Error = E> + i2c::Read<Error = E>,
     {
         // [dis]enabling the dac each reading should improve battery usage.
-        self.dac.enable(apb1);
+        self.dac.try_enable(apb1).ok();
 
         start_pwm(&mut self.pwm.0, &mut self.pwm.1, &mut self.pwm.2, delay);
         self.set_range(adc)?;
@@ -307,7 +307,7 @@ where
 
         stop_pwm(&mut self.pwm.0, &mut self.pwm.1, &mut self.pwm.2);
 
-        self.dac.disable(apb1);
+        self.dac.try_disable(apb1).ok();
 
         Ok(ec_from_voltage(v_p + v_m, 24.)) // todo
     }

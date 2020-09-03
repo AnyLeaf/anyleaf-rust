@@ -88,8 +88,7 @@ use nalgebra::{
     Vector1,
 };
 
-// todo: `embedded-hal` trait, and remove rcc::.... once merged.
-use stm32f3xx_hal::{dac::DacTrait, rcc::APB1};
+use stm32f3xx_hal::{dac::SingleChannelDac, rcc::APB1};
 
 use num_traits::float::FloatCore; // Required to take absolute value in `no_std`.
 
@@ -569,7 +568,7 @@ pub struct WaterMonitor<I2C, CsRtd, DAC, P0, P1, P2, PWM0, PWM1, PWM2, EI>
 where
     I2C: WriteRead<Error = EI> + Write<Error = EI> + Read<Error = EI>,
     CsRtd: OutputPin,
-    DAC: DacTrait,
+    DAC: SingleChannelDac,
     P0: OutputPin,
     P1: OutputPin,
     P2: OutputPin,
@@ -588,7 +587,7 @@ impl<I2C, CsRtd, DAC, P0, P1, P2, PWM0, PWM1, PWM2, EI>
 where
     I2C: WriteRead<Error = EI> + Write<Error = EI> + Read<Error = EI>,
     CsRtd: OutputPin,
-    DAC: DacTrait,
+    DAC: SingleChannelDac,
     P0: OutputPin,
     P1: OutputPin,
     P2: OutputPin,

@@ -35,6 +35,7 @@ dependencies = [
  "nalgebra",
  "nb",
  "num-traits",
+ "stm32f3xx-hal 0.5.0",
 ]
 
 [[package]]
@@ -47,7 +48,7 @@ dependencies = [
  "embedded-hal",
  "f3",
  "rtt-target",
- "stm32f3xx-hal",
+ "stm32f3xx-hal 0.4.3",
 ]
 
 [[package]]
@@ -98,6 +99,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4b9434b9a5aa1450faa3f9cb14ea0e8c53bb5d2b3c1bfd1ab4fc03e9f33fbfb0"
 dependencies = [
  "rustc_version",
+]
+
+[[package]]
+name = "chrono"
+version = "0.4.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "942f72db697d8767c22d46a598e01f2d3b475501ea43d0db4f16d90259182d0b"
+dependencies = [
+ "num-integer",
+ "num-traits",
 ]
 
 [[package]]
@@ -385,6 +396,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rtcc"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1048f7217bcd4bd977c01288e4973a69cf9195681f8b0b3a45d92ea21148f4a8"
+dependencies = [
+ "chrono",
+]
+
+[[package]]
 name = "rtt-target"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -454,7 +474,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40809cfa10dd7d7ee4c414addb1145ce1214e2123489e1eba3d13045a3de32d5"
 dependencies = [
  "bare-metal",
- "cortex-m 0.5.10",
+ "cortex-m 0.6.3",
+ "cortex-m-rt",
+ "vcell",
+]
+
+[[package]]
+name = "stm32f3"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2bcd49e908348f01acdc7ee1e0e1f8b9b709f99248749f6f79dcd88dc95ff6b2"
+dependencies = [
+ "bare-metal",
+ "cortex-m 0.6.3",
  "cortex-m-rt",
  "vcell",
 ]
@@ -497,7 +529,24 @@ dependencies = [
  "embedded-hal",
  "nb",
  "stm32-usbd",
- "stm32f3",
+ "stm32f3 0.10.0",
+ "void",
+]
+
+[[package]]
+name = "stm32f3xx-hal"
+version = "0.5.0"
+dependencies = [
+ "bare-metal",
+ "cast",
+ "cortex-m 0.6.3",
+ "cortex-m-rt",
+ "embedded-hal",
+ "nb",
+ "rtcc",
+ "stable_deref_trait",
+ "stm32-usbd",
+ "stm32f3 0.11.0",
  "void",
 ]
 
