@@ -64,7 +64,7 @@ impl EcGain {
 
 /// Use the ADG1608 to select the right resistor.
 #[derive(Debug)]
-struct ADG1608<P0: OutputPin, P1: OutputPin, P2: OutputPin> {
+pub struct ADG1608<P0: OutputPin, P1: OutputPin, P2: OutputPin> { // todo pub is temp
     pin0: P0,
     pin1: P1,
     pin2: P2,
@@ -75,7 +75,7 @@ impl<P0: OutputPin, P1: OutputPin, P2: OutputPin> ADG1608<P0, P1, P2> {
         Self { pin0, pin1, pin2 }
     }
 
-    fn set(&mut self, gain: EcGain) {
+    pub fn set(&mut self, gain: EcGain) {
         // Enable pin must be pulled high for this to work.
         match gain {
             EcGain::Two => {
@@ -149,8 +149,8 @@ where
 
     // todo: Is the PWM2 +VCC and 0, or 0 and -VV
 
-    // 94hz: 0.1063829
-    // /2: 5319.1489
+    // uS range: 94hz: 0.1063829 / 2: 5319.1489
+    // mS range: 2.5kHz:
     delay.delay_us(5_319);
     // TODO: high freq too
     p2.enable();
@@ -185,8 +185,8 @@ where
     PWM1: PwmPin,
     PWM2: PwmPin,
 {
-    dac: DAC,
-    gain_switch: ADG1608<P0, P1, P2>,
+    pub dac: DAC, // todo pub temp
+    pub gain_switch: ADG1608<P0, P1, P2>, // todo pub temp.
     pwm: (PWM0, PWM1, PWM2),
 }
 
@@ -221,6 +221,12 @@ where
     where
         I2C: i2c::WriteRead<Error = E> + i2c::Write<Error = E> + i2c::Read<Error = E>,
     {
+
+        // todo: Experimenting with fixed gain as temp measure.
+        self.dac.try_set_voltage(0.7).ok();
+        self.gain_switch.set(EcGain::Eight);
+        return Ok(());
+
         // Set multiplexer to highest gain resistance
         let mut gain = EcGain::Eight;
         self.gain_switch.set(gain);
@@ -234,7 +240,8 @@ where
 
         let v_def = 0.1; // todo: Figure out what this means. Check the AD community thread.
 
-        while v_p + v_m <= 0.3 * 2. * v_exc as f32 && gain != EcGain::Two {
+        // todo: Remove the 3 requirement. It's only for the lack of 20ohm resistor.
+        while v_p + v_m <= 0.3 * 2. * v_exc as f32 && gain != EcGain::Two && gain != EcGain::Three {
             gain = gain.drop();
 
             // todo: DRY!
@@ -267,7 +274,7 @@ where
                 // .as_mut()
                 // .expect("Measurement after I2C freed")
                 .read(&mut SingleA2))
-            .unwrap_or(35),
+            .unwrap_or(45),
         ); // todo temp unwrap due to Error type mismatches.
 
         let v_m = crate::voltage_from_adc(
@@ -275,7 +282,7 @@ where
                 // .as_mut()
                 // .expect("Measurement after I2C freed")
                 .read(&mut SingleA3))
-            .unwrap_or(35),
+            .unwrap_or(45),
         ); // todo temp unwrap
 
         Ok((v_p, v_m))
@@ -296,18 +303,20 @@ where
         I2C: i2c::WriteRead<Error = E> + i2c::Write<Error = E> + i2c::Read<Error = E>,
     {
         // [dis]enabling the dac each reading should improve battery usage.
-        self.dac.try_enable(apb1).ok();
+        self.dac.try_enable(apb1).ok(); // todo: Put back
 
         start_pwm(&mut self.pwm.0, &mut self.pwm.1, &mut self.pwm.2, delay);
         self.set_range(adc)?;
 
-        delay.delay_ms(200); // todo experiment
+        delay.delay_ms(500); // todo experiment
 
         let (v_p, v_m) = self.read_voltage(adc)?;
 
+        delay.delay_ms(500); // todo experiment
+
         stop_pwm(&mut self.pwm.0, &mut self.pwm.1, &mut self.pwm.2);
 
-        self.dac.try_disable(apb1).ok();
+        // self.dac.try_disable(apb1).ok(); // todo: Put back
 
         Ok(ec_from_voltage(v_p + v_m, 24.)) // todo
     }

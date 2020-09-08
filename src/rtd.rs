@@ -280,26 +280,6 @@ impl<CS: OutputPin> Rtd<CS> {
         Ok([overv, rtdin, refin, refin2, rtd_low, rtd_high])
     }
 
-    /// Find the fault status
-    pub fn test<SPI, E>(&mut self, spi: &mut SPI) -> Result<[u8; 8], E>
-    where
-        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
-    {
-        // todo: REturn a string description, or enum.
-        let status = self.read_data(spi, Register::CONFIG)?;
-
-        Ok([
-            status & (1 << (1 - 1)),
-            status & (1 << (2 - 1)),
-            status & (1 << (3 - 1)),
-            status & (1 << (4 - 1)),
-            status & (1 << (5 - 1)),
-            status & (1 << (6 - 1)),
-            status & (1 << (7 - 1)),
-            status & (1 << (8 - 1)),
-        ])
-    }
-
     /// (From driver notes:   You can perform calibration by putting the sensor in boiling (100 degrees
     /// Celcius) water and then measuring the raw value using `read_raw`. Calculate
     /// `calib` as `(13851 << 15) / raw >> 1`.

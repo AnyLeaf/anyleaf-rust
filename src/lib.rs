@@ -100,6 +100,8 @@ mod storage;
 use ec::EcSensor;
 pub use rtd::{Rtd, RtdType, Wires};
 
+pub use ec::EcGain; // todo: TEmp
+
 // Compensate for temperature diff between readings and calibration.
 const PH_TEMP_C: f32 = -0.05694; // pH/(V*T). V is in volts, and T is in °C
 const DISCRETE_PH_JUMP_THRESH: f32 = 0.2;
