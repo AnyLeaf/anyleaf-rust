@@ -242,9 +242,9 @@ where
     {
 
         // todo: Experimenting with fixed gain as temp measure.
-        self.dac.try_set_voltage(0.7).ok();
-        self.gain_switch.set(EcGain::Eight);
-        return Ok((0.7, EcGain::Eight));
+        // self.dac.try_set_voltage(0.4).ok();
+        // self.gain_switch.set(EcGain::Eight);
+        // return Ok((0.4, EcGain::Eight));
 
         // Set multiplexer to highest gain resistance
         let mut gain = EcGain::Eight;
@@ -261,7 +261,7 @@ where
         // todo: How do we set it?
         let v_def = 0.4;
 
-        // todo: Remove the 3 requirement. It's only for the lack of 20ohm resistor.
+        // todo: Remove the 3 requirement. It's only for the lack of 20Mohm resistor for now.
         while v_p + v_m <= 0.3 * 2. * v_exc as f32 && gain != EcGain::Two && gain != EcGain::Three {
             gain = gain.drop();
             self.gain_switch.set(gain);
