@@ -1,5 +1,7 @@
 //! Code that triggers parts of the ec circuit: Analog Devices CN-0411.
 
+#![allow(non_snake_case)]
+
 use embedded_hal::{
     adc::OneShot,
     blocking::{
@@ -60,6 +62,19 @@ impl EcGain {
             Self::Eight => Self::Seven,
         }
     }
+
+    /// Display the resistance associated with gain, in Ω.
+    fn resistance(&self) -> u32 {
+        match self {
+            Self::Two => 20,
+            Self::Three => 200,
+            Self::Four => 2_000,
+            Self::Five => 20_000,
+            Self::Six => 200_000,
+            Self::Seven => 2_000_000,
+            Self::Eight => 20_000_000,
+        }
+    }
 }
 
 /// Use the ADG1608 to select the right resistor.
@@ -78,17 +93,17 @@ impl<P0: OutputPin, P1: OutputPin, P2: OutputPin> ADG1608<P0, P1, P2> {
     pub fn set(&mut self, gain: EcGain) {
         // Enable pin must be pulled high for this to work.
         match gain {
-            EcGain::Two => {
+            EcGain::Eight => {
                 self.pin0.set_high().ok();
                 self.pin1.set_low().ok();
                 self.pin2.set_low().ok();
             }
-            EcGain::Three => {
+            EcGain::Seven => {
                 self.pin0.set_low().ok();
                 self.pin1.set_high().ok();
                 self.pin2.set_low().ok();
             }
-            EcGain::Four => {
+            EcGain::Six => {
                 self.pin0.set_high().ok();
                 self.pin1.set_high().ok();
                 self.pin2.set_low().ok();
@@ -98,17 +113,17 @@ impl<P0: OutputPin, P1: OutputPin, P2: OutputPin> ADG1608<P0, P1, P2> {
                 self.pin1.set_low().ok();
                 self.pin2.set_high().ok();
             }
-            EcGain::Six => {
+            EcGain::Four => {
                 self.pin0.set_high().ok();
                 self.pin1.set_low().ok();
                 self.pin2.set_high().ok();
             }
-            EcGain::Seven => {
+            EcGain::Three => {
                 self.pin0.set_low().ok();
                 self.pin1.set_high().ok();
                 self.pin2.set_high().ok();
             }
-            EcGain::Eight => {
+            EcGain::Two => {
                 self.pin0.set_high().ok();
                 self.pin1.set_high().ok();
                 self.pin2.set_high().ok();
@@ -151,7 +166,8 @@ where
 
     // uS range: 94hz: 0.1063829 / 2: 5319.1489
     // mS range: 2.5kHz:
-    delay.delay_us(5_319);
+    // todo: Don't use a delay: Use edge vice ctr-aligned modes.
+    // delay.delay_us(5_319);
     // TODO: high freq too
     p2.enable();
 }
@@ -188,6 +204,7 @@ where
     pub dac: DAC, // todo pub temp
     pub gain_switch: ADG1608<P0, P1, P2>, // todo pub temp.
     pwm: (PWM0, PWM1, PWM2),
+    K_cell: f32, // constant of the conductivity probe used.
 }
 
 impl<DAC, P0, P1, P2, PWM0, PWM1, PWM2> EcSensor<DAC, P0, P1, P2, PWM0, PWM1, PWM2>
@@ -200,7 +217,7 @@ where
     PWM1: PwmPin,
     PWM2: PwmPin,
 {
-    pub fn new(dac: DAC, switch_pins: (P0, P1, P2), pwm: (PWM0, PWM1, PWM2)) -> Self {
+    pub fn new(dac: DAC, switch_pins: (P0, P1, P2), pwm: (PWM0, PWM1, PWM2), K_cell: f32) -> Self {
         // PWM pins must be already configured with frequency of 94Hz.
 
         // todo: Setting duty temporarily moved back to main fn. Put here once
@@ -213,11 +230,13 @@ where
             dac,
             gain_switch: ADG1608::new(switch_pins.0, switch_pins.1, switch_pins.2),
             pwm,
+            K_cell,
         }
     }
 
-    /// Set gain and excitation voltage, as an auto-ranging procedure. See CN-0411: Table 12.
-    fn set_range<E, I2C>(&mut self, adc: &mut crate::Adc<I2C>) -> Result<(), E>
+    /// Set gain and excitation voltage, as an auto-ranging procedure.
+    /// Return the values, for use in the computation. See CN-0411: Table 12.
+    fn set_range<E, I2C>(&mut self, adc: &mut crate::Adc<I2C>) -> Result<(f32, EcGain), E>
     where
         I2C: i2c::WriteRead<Error = E> + i2c::Write<Error = E> + i2c::Read<Error = E>,
     {
@@ -225,7 +244,7 @@ where
         // todo: Experimenting with fixed gain as temp measure.
         self.dac.try_set_voltage(0.7).ok();
         self.gain_switch.set(EcGain::Eight);
-        return Ok(());
+        return Ok((0.7, EcGain::Eight));
 
         // Set multiplexer to highest gain resistance
         let mut gain = EcGain::Eight;
@@ -238,11 +257,14 @@ where
         // Read ADC Input V+ and V-
         let (mut v_p, mut v_m) = self.read_voltage(adc)?;
 
-        let v_def = 0.1; // todo: Figure out what this means. Check the AD community thread.
+        // `v_def` is the desired applied voltage across the conductivity electrodes.
+        // todo: How do we set it?
+        let v_def = 0.4;
 
         // todo: Remove the 3 requirement. It's only for the lack of 20ohm resistor.
         while v_p + v_m <= 0.3 * 2. * v_exc as f32 && gain != EcGain::Two && gain != EcGain::Three {
             gain = gain.drop();
+            self.gain_switch.set(gain);
 
             // todo: DRY!
             // Read ADC Input V+ and V-
@@ -250,12 +272,11 @@ where
             v_p = readings.0;
             v_m = readings.1;
         }
-        //
-        // // todo: Mind V vs mV
-        v_exc = (v_def * (v_exc as f32) / (v_p + v_m));
+
+        v_exc = v_def * (v_exc as f32) / (v_p + v_m);
         self.dac.try_set_voltage(v_exc).ok();
 
-        Ok(())
+        Ok((v_exc, gain))
     }
 
     /// Read the two voltages associated with ec measurement from the ADC.
@@ -305,8 +326,9 @@ where
         // [dis]enabling the dac each reading should improve battery usage.
         self.dac.try_enable(apb1).ok(); // todo: Put back
 
-        start_pwm(&mut self.pwm.0, &mut self.pwm.1, &mut self.pwm.2, delay);
-        self.set_range(adc)?;
+        // TODO: pUT BACK
+        // start_pwm(&mut self.pwm.0, &mut self.pwm.1, &mut self.pwm.2, delay);
+        let (v_exc, gain) = self.set_range(adc)?;
 
         delay.delay_ms(500); // todo experiment
 
@@ -314,16 +336,18 @@ where
 
         delay.delay_ms(500); // todo experiment
 
-        stop_pwm(&mut self.pwm.0, &mut self.pwm.1, &mut self.pwm.2);
+        // todo: put back
+        // stop_pwm(&mut self.pwm.0, &mut self.pwm.1, &mut self.pwm.2);
+         // todo: Put back
+        // self.dac.try_disable(apb1).ok();
 
-        // self.dac.try_disable(apb1).ok(); // todo: Put back
+        // `pp` means peak-to-peak
+        let V_cond_pp = 0.1 * v_p + 0.1 * v_m; // CN0411, Eq 6
+        let I_cond_pp = (2. * v_exc - V_cond_pp) / (gain.resistance() as f32); // CN0411, Eq 7
+        let Y_sol = self.K_cell * I_cond_pp / V_cond_pp;   // CN0411, Eq 8
 
-        Ok(ec_from_voltage(v_p + v_m, 24.)) // todo
+        // todo: Temp compensation:
+
+        Ok(Y_sol) // todo
     }
-}
-
-/// Map ec voltage to temperature.
-fn ec_from_voltage(V: f32, temp: f32) -> f32 {
-    // todo
-    V
 }

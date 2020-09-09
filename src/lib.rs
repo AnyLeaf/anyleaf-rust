@@ -604,7 +604,8 @@ where
         dac: DAC,
         switch_pins: (P0, P1, P2),
         pwm: (PWM0, PWM1, PWM2),
-        dt: f32,
+        K_cell: f32,  // conductivity cell constant
+        dt: f32, // seconds
     ) -> Self
     where
         SPI: spi::Write<u8, Error = ES> + spi::Transfer<u8, Error = ES>,
@@ -617,7 +618,7 @@ where
         let mut orp = OrpSensor::new_alt_addr(i2c, dt);
         ph.unfree(orp.free());
 
-        let ec = EcSensor::new(dac, switch_pins, pwm);
+        let ec = EcSensor::new(dac, switch_pins, pwm, K_cell);
 
         // todo: You should perhaps have these as options or results, so hardware failures like for
         // todo the RTD don't crash the program.
