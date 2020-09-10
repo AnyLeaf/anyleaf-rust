@@ -242,9 +242,9 @@ where
     {
 
         // todo: Experimenting with fixed gain as temp measure.
-        // self.dac.try_set_voltage(0.4).ok();
-        // self.gain_switch.set(EcGain::Eight);
-        // return Ok((0.4, EcGain::Eight));
+        self.dac.try_set_voltage(0.8).ok();
+        self.gain_switch.set(EcGain::Five);
+        return Ok((0.8, EcGain::Five));
 
         // Set multiplexer to highest gain resistance
         let mut gain = EcGain::Eight;
