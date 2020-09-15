@@ -2,6 +2,9 @@
 
 #![allow(non_snake_case)]
 
+// todo: temp
+use rtt_target::rprintln;
+
 use embedded_hal::{
     adc::OneShot,
     blocking::{
@@ -9,7 +12,7 @@ use embedded_hal::{
         i2c,
     },
     digital::v2::OutputPin,
-    PwmPin,
+    // PwmPin,
 };
 
 use ads1x1x::{
@@ -18,7 +21,12 @@ use ads1x1x::{
 };
 
 // todo: Once you make `SingleChannelDac` more abstract, remove this.
-use stm32f3xx_hal::{dac::SingleChannelDac, rcc::APB1};
+use stm32f3xx_hal::{
+    dac::SingleChannelDac,
+    pac::TIM2,
+    rcc::APB1,
+    timer::{Channel, Timer},
+};
 
 // Frequencies for the PWM channels.
 // const F_LOW: u16 = 94; // uS range
@@ -79,7 +87,8 @@ impl EcGain {
 
 /// Use the ADG1608 to select the right resistor.
 #[derive(Debug)]
-pub struct ADG1608<P0: OutputPin, P1: OutputPin, P2: OutputPin> { // todo pub is temp
+pub struct ADG1608<P0: OutputPin, P1: OutputPin, P2: OutputPin> {
+    // todo pub is temp
     pin0: P0,
     pin1: P1,
     pin2: P2,
@@ -132,13 +141,17 @@ impl<P0: OutputPin, P1: OutputPin, P2: OutputPin> ADG1608<P0, P1, P2> {
     }
 }
 
-/// Configure and start the 3 PWM pulse sets driving the square wave.
-pub fn start_pwm<PWM0, PWM1, PWM2, D>(p0: &mut PWM0, p1: &mut PWM1, p2: &mut PWM2, delay: &mut D)
-where
-    PWM0: PwmPin,
-    PWM1: PwmPin,
-    PWM2: PwmPin,
-    D: DelayUs<u16>,
+// pub fn start_pwm<PWM0, PWM1, PWM2, D>(p0: &mut PWM0, p1: &mut PWM1, p2: &mut PWM2, delay: &mut D)
+pub fn start_pwm(timer: &mut Timer<TIM2>)
+// where
+// PWM0: PwmPin,
+// PWM1: PwmPin,
+// PWM2: PwmPin,
+
+// PWM0: OutputPin,
+// PWM1: OutputPin,
+// PWM2: PwmPin,
+// D: DelayUs<u16>,
 {
     // todo: embedded hal API is changing with 1.0. Moving to try_enable etc,
     // todo and own pwm module.
@@ -159,8 +172,8 @@ where
     // time, and just have PWM2's polarity inverted; PWM2 looks like the inverse duty cycle and
     // polarity from PWM1 if you view them with the same center point.
 
-    p0.enable();
-    p1.enable();
+    // p0.enable();
+    // p1.enable();
 
     // todo: Is the PWM2 +VCC and 0, or 0 and -VV
 
@@ -169,55 +182,68 @@ where
     // todo: Don't use a delay: Use edge vice ctr-aligned modes.
     // delay.delay_us(5_319);
     // TODO: high freq too
-    p2.enable();
+    // p2.enable();
+
+    timer.enable(Channel::One);
+    timer.enable(Channel::Two);
+    timer.enable(Channel::Three);
 }
 
+// pub fn stop_pwm<PWM0, PWM1, PWM2>(p0: &mut PWM0, p1: &mut PWM1, p2: &mut PWM2)
+// pub fn stop_pwm(p0: &mut PWM0, p1: &mut PWM1, p2: &mut PWM2)
 /// Stop all 3 PWM channels
-pub fn stop_pwm<PWM0, PWM1, PWM2>(p0: &mut PWM0, p1: &mut PWM1, p2: &mut PWM2)
-where
-    PWM0: PwmPin,
-    PWM1: PwmPin,
-    PWM2: PwmPin,
-{
+pub fn stop_pwm(timer: &mut Timer<TIM2>) {
+    // where
+    //     PWM0: PwmPin,
+    //     PWM1: PwmPin,
+    //     PWM2: PwmPin,
+    // {
     // p0.try_disable().unwrap(); // todo: For embedded_hal v1.0
     // p1.try_disable().unwrap();
     // p2.try_disable().unwrap();
 
-    p0.disable();
-    p1.disable();
-    p2.disable();
+    // p0.disable();
+    // p1.disable();
+    // p2.disable();
+
+    timer.disable(Channel::One);
+    timer.disable(Channel::Two);
+    timer.disable(Channel::Three);
 }
 
 /// The high-level struct representing the EC circuit.
 #[derive(Debug)]
-pub struct EcSensor<DAC, P0, P1, P2, PWM0, PWM1, PWM2>
+// pub struct EcSensor<DAC, P0, P1, P2, PWM0, PWM1, PWM2>
+pub struct EcSensor<DAC, P0, P1, P2>
 where
     // todo: There has ato be a way to keep these trait bounds local.
     DAC: SingleChannelDac,
     P0: OutputPin,
     P1: OutputPin,
     P2: OutputPin,
-    PWM0: PwmPin,
-    PWM1: PwmPin,
-    PWM2: PwmPin,
+    // PWM0: PwmPin,
+    // PWM1: PwmPin,
+    // PWM2: PwmPin,
 {
-    pub dac: DAC, // todo pub temp
+    pub dac: DAC,                         // todo pub temp
     pub gain_switch: ADG1608<P0, P1, P2>, // todo pub temp.
-    pwm: (PWM0, PWM1, PWM2),
+    // pwm: (PWM0, PWM1, PWM2),
     K_cell: f32, // constant of the conductivity probe used.
 }
 
-impl<DAC, P0, P1, P2, PWM0, PWM1, PWM2> EcSensor<DAC, P0, P1, P2, PWM0, PWM1, PWM2>
+// impl<DAC, P0, P1, P2, PWM0, PWM1, PWM2> EcSensor<DAC, P0, P1, P2, PWM0, PWM1, PWM2>
+impl<DAC, P0, P1, P2> EcSensor<DAC, P0, P1, P2>
 where
     DAC: SingleChannelDac,
     P0: OutputPin,
     P1: OutputPin,
     P2: OutputPin,
-    PWM0: PwmPin,
-    PWM1: PwmPin,
-    PWM2: PwmPin,
+    // PWM0: PwmPin,
+    // PWM1: PwmPin,
+    // PWM2: PwmPin,
 {
-    pub fn new(dac: DAC, switch_pins: (P0, P1, P2), pwm: (PWM0, PWM1, PWM2), K_cell: f32) -> Self {
+    // pub fn new(dac: DAC, switch_pins: (P0, P1, P2), pwm: (PWM0, PWM1, PWM2), K_cell: f32) -> Self {
+    pub fn new(dac: DAC, switch_pins: (P0, P1, P2), K_cell: f32) -> Self {
         // PWM pins must be already configured with frequency of 94Hz.
 
         // todo: Setting duty temporarily moved back to main fn. Put here once
@@ -229,7 +255,7 @@ where
         Self {
             dac,
             gain_switch: ADG1608::new(switch_pins.0, switch_pins.1, switch_pins.2),
-            pwm,
+            // pwm,
             K_cell,
         }
     }
@@ -240,7 +266,6 @@ where
     where
         I2C: i2c::WriteRead<Error = E> + i2c::Write<Error = E> + i2c::Read<Error = E>,
     {
-
         // todo: Experimenting with fixed gain as temp measure.
         self.dac.try_set_voltage(0.8).ok();
         self.gain_switch.set(EcGain::Five);
@@ -318,6 +343,7 @@ where
         delay: &mut D,
         T: f32,
         apb1: &mut APB1,
+        timer: &mut Timer<TIM2>,
     ) -> Result<f32, E>
     where
         D: DelayUs<u16> + DelayMs<u16>,
@@ -327,7 +353,7 @@ where
         self.dac.try_enable(apb1).ok(); // todo: Put back
 
         // TODO: pUT BACK
-        // start_pwm(&mut self.pwm.0, &mut self.pwm.1, &mut self.pwm.2, delay);
+        // start_pwm(timer);
         let (v_exc, gain) = self.set_range(adc)?;
 
         delay.delay_ms(500); // todo experiment
@@ -338,13 +364,14 @@ where
 
         // todo: put back
         // stop_pwm(&mut self.pwm.0, &mut self.pwm.1, &mut self.pwm.2);
-         // todo: Put back
+        // stop_pwm(timer);
+        // todo: Put back
         // self.dac.try_disable(apb1).ok();
 
         // `pp` means peak-to-peak
         let V_cond_pp = 0.1 * v_p + 0.1 * v_m; // CN0411, Eq 6
         let I_cond_pp = (2. * v_exc - V_cond_pp) / (gain.resistance() as f32); // CN0411, Eq 7
-        let Y_sol = self.K_cell * I_cond_pp / V_cond_pp;   // CN0411, Eq 8
+        let Y_sol = self.K_cell * I_cond_pp / V_cond_pp; // CN0411, Eq 8
 
         // todo: Temp compensation:
 

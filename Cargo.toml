@@ -28,3 +28,7 @@ nalgebra = { version = "0.21.0", default-features = false }
 
 # for the EC circuit, using STM32's DAC.
 stm32f3xx-hal = { path = "../../../../Desktop/stm32f3xx-hal", features = ["stm32f303xc", "rt"] }
+
+
+# todo temp
+rtt-target = { version = "0.2.0", features = ["cortex-m"] }

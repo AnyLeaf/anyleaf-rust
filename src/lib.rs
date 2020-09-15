@@ -88,7 +88,7 @@ use nalgebra::{
     Vector1,
 };
 
-use stm32f3xx_hal::{dac::SingleChannelDac, rcc::APB1};
+use stm32f3xx_hal::{dac::SingleChannelDac, pac::TIM2, rcc::APB1, timer::Timer};
 
 use num_traits::float::FloatCore; // Required to take absolute value in `no_std`.
 
@@ -566,7 +566,8 @@ pub struct Readings {
 /// todo use it in its project code, although we could change that.
 // todo: Be able to properly fail for both SPI and I2C errors. We currently
 // todo: only properly handle I2C ones.
-pub struct WaterMonitor<I2C, CsRtd, DAC, P0, P1, P2, PWM0, PWM1, PWM2, EI>
+// pub struct WaterMonitor<I2C, CsRtd, DAC, P0, P1, P2, PWM0, PWM1, PWM2, EI>
+pub struct WaterMonitor<I2C, CsRtd, DAC, P0, P1, P2, EI>
 where
     I2C: WriteRead<Error = EI> + Write<Error = EI> + Read<Error = EI>,
     CsRtd: OutputPin,
@@ -574,18 +575,19 @@ where
     P0: OutputPin,
     P1: OutputPin,
     P2: OutputPin,
-    PWM0: PwmPin,
-    PWM1: PwmPin,
-    PWM2: PwmPin,
+    // PWM0: PwmPin,
+    // PWM1: PwmPin,
+    // PWM2: PwmPin,
 {
     pub rtd: Rtd<CsRtd>,         // Max31865 RTD chip.
     pub ph: PhSensor<I2C, EI>,   // at 0x48. Inludes the temp sensor at input A3.
     pub orp: OrpSensor<I2C, EI>, // at 0x49. Inlucdes the ec sensor at input A3.
-    pub ec: EcSensor<DAC, P0, P1, P2, PWM0, PWM1, PWM2>,
+    // pub ec: EcSensor<DAC, P0, P1, P2, PWM0, PWM1, PWM2>,
+    pub ec: EcSensor<DAC, P0, P1, P2>,
 }
 
-impl<I2C, CsRtd, DAC, P0, P1, P2, PWM0, PWM1, PWM2, EI>
-    WaterMonitor<I2C, CsRtd, DAC, P0, P1, P2, PWM0, PWM1, PWM2, EI>
+// impl<I2C, CsRtd, DAC, P0, P1, P2, PWM0, PWM1, PWM2, EI>
+impl<I2C, CsRtd, DAC, P0, P1, P2, EI> WaterMonitor<I2C, CsRtd, DAC, P0, P1, P2, EI>
 where
     I2C: WriteRead<Error = EI> + Write<Error = EI> + Read<Error = EI>,
     CsRtd: OutputPin,
@@ -593,9 +595,9 @@ where
     P0: OutputPin,
     P1: OutputPin,
     P2: OutputPin,
-    PWM0: PwmPin,
-    PWM1: PwmPin,
-    PWM2: PwmPin,
+    // PWM0: PwmPin,
+    // PWM1: PwmPin,
+    // PWM2: PwmPin,
 {
     pub fn new<SPI, ES>(
         spi: &mut SPI,
@@ -603,9 +605,9 @@ where
         cs_rtd: CsRtd,
         dac: DAC,
         switch_pins: (P0, P1, P2),
-        pwm: (PWM0, PWM1, PWM2),
-        K_cell: f32,  // conductivity cell constant
-        dt: f32, // seconds
+        // pwm: (PWM0, PWM1, PWM2),
+        K_cell: f32, // conductivity cell constant
+        dt: f32,     // seconds
     ) -> Self
     where
         SPI: spi::Write<u8, Error = ES> + spi::Transfer<u8, Error = ES>,
@@ -618,7 +620,8 @@ where
         let mut orp = OrpSensor::new_alt_addr(i2c, dt);
         ph.unfree(orp.free());
 
-        let ec = EcSensor::new(dac, switch_pins, pwm, K_cell);
+        // let ec = EcSensor::new(dac, switch_pins, pwm, K_cell);
+        let ec = EcSensor::new(dac, switch_pins, K_cell);
 
         // todo: You should perhaps have these as options or results, so hardware failures like for
         // todo the RTD don't crash the program.
@@ -632,6 +635,7 @@ where
         spi: &mut SPI,
         delay: &mut D,
         apb1: &mut APB1,
+        timer: &mut Timer<TIM2>,
     ) -> Readings
     where
         SPI: spi::Write<u8, Error = ES> + spi::Transfer<u8, Error = ES>,
@@ -649,7 +653,7 @@ where
             pH: Err(SensorError::Bus),
             T,
             ORP: self.read_orp(),
-            ec: self.read_ec(delay, T2, apb1),
+            ec: self.read_ec(delay, T2, apb1, timer),
         }
     }
 
@@ -684,14 +688,20 @@ where
     }
 
     /// Read electrical conductivity.
-    pub fn read_ec<D>(&mut self, delay: &mut D, T: f32, apb1: &mut APB1) -> Result<f32, SensorError>
+    pub fn read_ec<D>(
+        &mut self,
+        delay: &mut D,
+        T: f32,
+        apb1: &mut APB1,
+        timer: &mut Timer<TIM2>,
+    ) -> Result<f32, SensorError>
     where
         D: DelayUs<u16> + DelayMs<u16>,
     {
         self.orp_take();
         match self
             .ec
-            .read(&mut self.orp.adc.as_mut().unwrap(), delay, T, apb1)
+            .read(&mut self.orp.adc.as_mut().unwrap(), delay, T, apb1, timer)
         {
             Ok(v) => Ok(v),
             Err(_) => Err(SensorError::Bus),
