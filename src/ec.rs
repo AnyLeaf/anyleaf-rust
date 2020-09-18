@@ -142,48 +142,7 @@ impl<P0: OutputPin, P1: OutputPin, P2: OutputPin> ADG1608<P0, P1, P2> {
 }
 
 // pub fn start_pwm<PWM0, PWM1, PWM2, D>(p0: &mut PWM0, p1: &mut PWM1, p2: &mut PWM2, delay: &mut D)
-pub fn start_pwm(timer: &mut Timer<TIM2>)
-// where
-// PWM0: PwmPin,
-// PWM1: PwmPin,
-// PWM2: PwmPin,
-
-// PWM0: OutputPin,
-// PWM1: OutputPin,
-// PWM2: PwmPin,
-// D: DelayUs<u16>,
-{
-    // todo: embedded hal API is changing with 1.0. Moving to try_enable etc,
-    // todo and own pwm module.
-    // p0.try_enable().unwrap();
-    // p1.try_enable().unwrap();
-    // p2.try_enable().unwrap();
-    //
-
-    // Yes; they work internally via a counter that triggers different actions as it gets to different values.
-    // You get to pick which clock it counts based on,
-    // pre-scale the clock, set the compare numbers, put it in various different modes, etc.
-    // Timer peripherals can get pretty complicated, even the simple ones, but they enable a lot of really great
-    // stuff when you get familiar with how they work.
-    // They typically also have "capture" modes where the counter free-runs and some event triggers
-    // the current counter value to be saved.
-    // pinealservo
-    // I think you could do all 3 waveforms with the same center-aligned PWM frequency and start
-    // time, and just have PWM2's polarity inverted; PWM2 looks like the inverse duty cycle and
-    // polarity from PWM1 if you view them with the same center point.
-
-    // p0.enable();
-    // p1.enable();
-
-    // todo: Is the PWM2 +VCC and 0, or 0 and -VV
-
-    // uS range: 94hz: 0.1063829 / 2: 5319.1489
-    // mS range: 2.5kHz:
-    // todo: Don't use a delay: Use edge vice ctr-aligned modes.
-    // delay.delay_us(5_319);
-    // TODO: high freq too
-    // p2.enable();
-
+pub fn start_pwm(timer: &mut Timer<TIM2>) {
     timer.enable(Channel::One);
     timer.enable(Channel::Two);
     timer.enable(Channel::Three);
@@ -193,19 +152,6 @@ pub fn start_pwm(timer: &mut Timer<TIM2>)
 // pub fn stop_pwm(p0: &mut PWM0, p1: &mut PWM1, p2: &mut PWM2)
 /// Stop all 3 PWM channels
 pub fn stop_pwm(timer: &mut Timer<TIM2>) {
-    // where
-    //     PWM0: PwmPin,
-    //     PWM1: PwmPin,
-    //     PWM2: PwmPin,
-    // {
-    // p0.try_disable().unwrap(); // todo: For embedded_hal v1.0
-    // p1.try_disable().unwrap();
-    // p2.try_disable().unwrap();
-
-    // p0.disable();
-    // p1.disable();
-    // p2.disable();
-
     timer.disable(Channel::One);
     timer.disable(Channel::Two);
     timer.disable(Channel::Three);
@@ -213,7 +159,6 @@ pub fn stop_pwm(timer: &mut Timer<TIM2>) {
 
 /// The high-level struct representing the EC circuit.
 #[derive(Debug)]
-// pub struct EcSensor<DAC, P0, P1, P2, PWM0, PWM1, PWM2>
 pub struct EcSensor<DAC, P0, P1, P2>
 where
     // todo: There has ato be a way to keep these trait bounds local.
@@ -221,41 +166,23 @@ where
     P0: OutputPin,
     P1: OutputPin,
     P2: OutputPin,
-    // PWM0: PwmPin,
-    // PWM1: PwmPin,
-    // PWM2: PwmPin,
 {
     pub dac: DAC,                         // todo pub temp
     pub gain_switch: ADG1608<P0, P1, P2>, // todo pub temp.
-    // pwm: (PWM0, PWM1, PWM2),
     K_cell: f32, // constant of the conductivity probe used.
 }
 
-// impl<DAC, P0, P1, P2, PWM0, PWM1, PWM2> EcSensor<DAC, P0, P1, P2, PWM0, PWM1, PWM2>
 impl<DAC, P0, P1, P2> EcSensor<DAC, P0, P1, P2>
 where
     DAC: SingleChannelDac,
     P0: OutputPin,
     P1: OutputPin,
     P2: OutputPin,
-    // PWM0: PwmPin,
-    // PWM1: PwmPin,
-    // PWM2: PwmPin,
 {
-    // pub fn new(dac: DAC, switch_pins: (P0, P1, P2), pwm: (PWM0, PWM1, PWM2), K_cell: f32) -> Self {
     pub fn new(dac: DAC, switch_pins: (P0, P1, P2), K_cell: f32) -> Self {
-        // PWM pins must be already configured with frequency of 94Hz.
-
-        // todo: Setting duty temporarily moved back to main fn. Put here once
-        // todo you sort out how to get a value from `get_max_duty()`.
-        // pwm.0.set_duty(pwm.0.get_max_duty() / 2.); // 50% duty cyle  // todo verify this is right
-        // pwm.1.set_duty(pwm.1.get_max_duty() / 6.); // 17% duty cyle
-        // pwm.2.set_duty(pwm.2.get_max_duty() / 6.); // 17% duty cyle
-
         Self {
             dac,
             gain_switch: ADG1608::new(switch_pins.0, switch_pins.1, switch_pins.2),
-            // pwm,
             K_cell,
         }
     }
@@ -267,9 +194,9 @@ where
         I2C: i2c::WriteRead<Error = E> + i2c::Write<Error = E> + i2c::Read<Error = E>,
     {
         // todo: Experimenting with fixed gain as temp measure.
-        self.dac.try_set_voltage(0.8).ok();
-        self.gain_switch.set(EcGain::Five);
-        return Ok((0.8, EcGain::Five));
+        self.dac.try_set_voltage(0.4).ok();
+        // self.gain_switch.set(EcGain::Five);
+        // return Ok((0.8, EcGain::Five));
 
         // Set multiplexer to highest gain resistance
         let mut gain = EcGain::Eight;
@@ -284,7 +211,7 @@ where
 
         // `v_def` is the desired applied voltage across the conductivity electrodes.
         // todo: How do we set it?
-        let v_def = 0.4;
+        let v_def = 1.5;
 
         // todo: Remove the 3 requirement. It's only for the lack of 20Mohm resistor for now.
         while v_p + v_m <= 0.3 * 2. * v_exc as f32 && gain != EcGain::Two && gain != EcGain::Three {
@@ -363,7 +290,6 @@ where
         delay.delay_ms(500); // todo experiment
 
         // todo: put back
-        // stop_pwm(&mut self.pwm.0, &mut self.pwm.1, &mut self.pwm.2);
         // stop_pwm(timer);
         // todo: Put back
         // self.dac.try_disable(apb1).ok();
