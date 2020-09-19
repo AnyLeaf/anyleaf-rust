@@ -22,7 +22,7 @@ use ads1x1x::{
 
 // todo: Once you make `SingleChannelDac` more abstract, remove this.
 use stm32f3xx_hal::{
-    dac::SingleChannelDac,
+    dac::Dac,
     pac::TIM2,
     rcc::APB1,
     timer::{Channel, Timer},
@@ -36,51 +36,51 @@ use stm32f3xx_hal::{
 pub enum EcGain {
     // Gain 1 isn't used. We set it up this way
     // so the gains match with the S values.
-    Two,   // S2
-    Three, // S3
-    Four,  // S4
-    Five,  // S5
-    Six,   // S6
-    Seven, // S7
-    Eight, // S8
+    One,   // S8. Highest resistance
+    Two,   // S7
+    Three, // S6
+    Four,  // S5
+    Five,  // S4
+    Six,   // S3
+    Seven, // S2. Lowest resistance
 }
 
 impl EcGain {
     /// Raise by one level.
     fn raise(&self) -> Self {
         match self {
+            Self::One => Self::Two,
             Self::Two => Self::Three,
             Self::Three => Self::Four,
             Self::Four => Self::Five,
             Self::Five => Self::Six,
             Self::Six => Self::Seven,
-            Self::Seven => Self::Eight,
-            Self::Eight => panic!("Gain is already at maximum"),
+            Self::Seven => panic!("Gain is already at maximum"),
         }
     }
     /// Drop by one level.
     fn drop(&self) -> Self {
         match self {
-            Self::Two => panic!("Gain is already at minimum"),
+            Self::One => panic!("Gain is already at minimum"),
+            Self::Two => Self::One,
             Self::Three => Self::Two,
-            Self::Four => Self::Three,
+            Self::Four=> Self::Three,
             Self::Five => Self::Four,
             Self::Six => Self::Five,
             Self::Seven => Self::Six,
-            Self::Eight => Self::Seven,
         }
     }
 
     /// Display the resistance associated with gain, in Ω.
     fn resistance(&self) -> u32 {
         match self {
-            Self::Two => 20,
-            Self::Three => 200,
-            Self::Four => 2_000,
-            Self::Five => 20_000,
-            Self::Six => 200_000,
-            Self::Seven => 2_000_000,
-            Self::Eight => 20_000_000,
+            Self::Seven => 20,
+            Self::Six => 200,
+            Self::Five => 2_000,
+            Self::Four => 20_000,
+            Self::Three => 200_000,
+            Self::Two => 2_000_000,
+            Self::One => 20_000_000,
         }
     }
 }
@@ -101,38 +101,39 @@ impl<P0: OutputPin, P1: OutputPin, P2: OutputPin> ADG1608<P0, P1, P2> {
 
     pub fn set(&mut self, gain: EcGain) {
         // Enable pin must be pulled high for this to work.
+        //
         match gain {
-            EcGain::Eight => {
+            EcGain::Seven => {
                 self.pin0.set_high().ok();
                 self.pin1.set_low().ok();
                 self.pin2.set_low().ok();
             }
-            EcGain::Seven => {
-                self.pin0.set_low().ok();
-                self.pin1.set_high().ok();
-                self.pin2.set_low().ok();
-            }
             EcGain::Six => {
-                self.pin0.set_high().ok();
+                self.pin0.set_low().ok();
                 self.pin1.set_high().ok();
                 self.pin2.set_low().ok();
             }
             EcGain::Five => {
-                self.pin0.set_low().ok();
-                self.pin1.set_low().ok();
-                self.pin2.set_high().ok();
+                self.pin0.set_high().ok();
+                self.pin1.set_high().ok();
+                self.pin2.set_low().ok();
             }
             EcGain::Four => {
-                self.pin0.set_high().ok();
+                self.pin0.set_low().ok();
                 self.pin1.set_low().ok();
                 self.pin2.set_high().ok();
             }
             EcGain::Three => {
+                self.pin0.set_high().ok();
+                self.pin1.set_low().ok();
+                self.pin2.set_high().ok();
+            }
+            EcGain::Two => {
                 self.pin0.set_low().ok();
                 self.pin1.set_high().ok();
                 self.pin2.set_high().ok();
             }
-            EcGain::Two => {
+            EcGain::One => {
                 self.pin0.set_high().ok();
                 self.pin1.set_high().ok();
                 self.pin2.set_high().ok();
@@ -159,27 +160,24 @@ pub fn stop_pwm(timer: &mut Timer<TIM2>) {
 
 /// The high-level struct representing the EC circuit.
 #[derive(Debug)]
-pub struct EcSensor<DAC, P0, P1, P2>
+pub struct EcSensor<P0, P1, P2>
 where
-    // todo: There has ato be a way to keep these trait bounds local.
-    DAC: SingleChannelDac,
     P0: OutputPin,
     P1: OutputPin,
     P2: OutputPin,
 {
-    pub dac: DAC,                         // todo pub temp
+    pub dac: Dac,                         // todo pub temp
     pub gain_switch: ADG1608<P0, P1, P2>, // todo pub temp.
     K_cell: f32, // constant of the conductivity probe used.
 }
 
-impl<DAC, P0, P1, P2> EcSensor<DAC, P0, P1, P2>
+impl<P0, P1, P2> EcSensor<P0, P1, P2>
 where
-    DAC: SingleChannelDac,
     P0: OutputPin,
     P1: OutputPin,
     P2: OutputPin,
 {
-    pub fn new(dac: DAC, switch_pins: (P0, P1, P2), K_cell: f32) -> Self {
+    pub fn new(dac: Dac, switch_pins: (P0, P1, P2), K_cell: f32) -> Self {
         Self {
             dac,
             gain_switch: ADG1608::new(switch_pins.0, switch_pins.1, switch_pins.2),
@@ -194,28 +192,27 @@ where
         I2C: i2c::WriteRead<Error = E> + i2c::Write<Error = E> + i2c::Read<Error = E>,
     {
         // todo: Experimenting with fixed gain as temp measure.
-        self.dac.try_set_voltage(0.4).ok();
-        // self.gain_switch.set(EcGain::Five);
-        // return Ok((0.8, EcGain::Five));
+        // self.dac.set_voltage(2.);
+        // self.gain_switch.set(EcGain::Six);
+        // return Ok((2., EcGain::Six));
 
         // Set multiplexer to highest gain resistance
-        let mut gain = EcGain::Eight;
+        let mut gain = EcGain::One;
         self.gain_switch.set(gain);
 
         // Set DAC to Output V_EXC = 400mV
         let mut v_exc = 0.4;
-        self.dac.try_set_voltage(v_exc).ok();
+        self.dac.set_voltage(v_exc);
 
         // Read ADC Input V+ and V-
         let (mut v_p, mut v_m) = self.read_voltage(adc)?;
 
         // `v_def` is the desired applied voltage across the conductivity electrodes.
         // todo: How do we set it?
-        let v_def = 1.5;
+        let v_def = 1.;
 
-        // todo: Remove the 3 requirement. It's only for the lack of 20Mohm resistor for now.
-        while v_p + v_m <= 0.3 * 2. * v_exc as f32 && gain != EcGain::Two && gain != EcGain::Three {
-            gain = gain.drop();
+        while v_p + v_m <= (0.3 * 2. * v_exc as f32) && gain != EcGain::Seven {
+            gain = gain.raise();
             self.gain_switch.set(gain);
 
             // todo: DRY!
@@ -226,7 +223,7 @@ where
         }
 
         v_exc = v_def * (v_exc as f32) / (v_p + v_m);
-        self.dac.try_set_voltage(v_exc).ok();
+        self.dac.set_voltage(v_exc);
 
         Ok((v_exc, gain))
     }
@@ -277,7 +274,7 @@ where
         I2C: i2c::WriteRead<Error = E> + i2c::Write<Error = E> + i2c::Read<Error = E>,
     {
         // [dis]enabling the dac each reading should improve battery usage.
-        self.dac.try_enable(apb1).ok(); // todo: Put back
+        self.dac.enable(apb1); // todo: Put back
 
         // TODO: pUT BACK
         // start_pwm(timer);
@@ -292,7 +289,11 @@ where
         // todo: put back
         // stop_pwm(timer);
         // todo: Put back
-        // self.dac.try_disable(apb1).ok();
+        // self.dac.disable(apb1);
+
+        // See also
+        // https://wiki.analog.com/resources/eval/user-guides/eval-adicup360/reference_designs/demo_cn0411
+        // https://github.com/analogdevicesinc/EVAL-ADICUP360/blob/master/projects/ADuCM360_demo_cn0411/src/CN0411.c
 
         // `pp` means peak-to-peak
         let V_cond_pp = 0.1 * v_p + 0.1 * v_m; // CN0411, Eq 6

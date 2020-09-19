@@ -88,7 +88,7 @@ use nalgebra::{
     Vector1,
 };
 
-use stm32f3xx_hal::{dac::SingleChannelDac, pac::TIM2, rcc::APB1, timer::Timer};
+use stm32f3xx_hal::{dac::Dac, pac::TIM2, rcc::APB1, timer::Timer};
 
 use num_traits::float::FloatCore; // Required to take absolute value in `no_std`.
 
@@ -567,11 +567,10 @@ pub struct Readings {
 // todo: Be able to properly fail for both SPI and I2C errors. We currently
 // todo: only properly handle I2C ones.
 // pub struct WaterMonitor<I2C, CsRtd, DAC, P0, P1, P2, PWM0, PWM1, PWM2, EI>
-pub struct WaterMonitor<I2C, CsRtd, DAC, P0, P1, P2, EI>
+pub struct WaterMonitor<I2C, CsRtd, P0, P1, P2, EI>
 where
     I2C: WriteRead<Error = EI> + Write<Error = EI> + Read<Error = EI>,
     CsRtd: OutputPin,
-    DAC: SingleChannelDac,
     P0: OutputPin,
     P1: OutputPin,
     P2: OutputPin,
@@ -583,15 +582,14 @@ where
     pub ph: PhSensor<I2C, EI>,   // at 0x48. Inludes the temp sensor at input A3.
     pub orp: OrpSensor<I2C, EI>, // at 0x49. Inlucdes the ec sensor at input A3.
     // pub ec: EcSensor<DAC, P0, P1, P2, PWM0, PWM1, PWM2>,
-    pub ec: EcSensor<DAC, P0, P1, P2>,
+    pub ec: EcSensor<P0, P1, P2>,
 }
 
 // impl<I2C, CsRtd, DAC, P0, P1, P2, PWM0, PWM1, PWM2, EI>
-impl<I2C, CsRtd, DAC, P0, P1, P2, EI> WaterMonitor<I2C, CsRtd, DAC, P0, P1, P2, EI>
+impl<I2C, CsRtd, P0, P1, P2, EI> WaterMonitor<I2C, CsRtd, P0, P1, P2, EI>
 where
     I2C: WriteRead<Error = EI> + Write<Error = EI> + Read<Error = EI>,
     CsRtd: OutputPin,
-    DAC: SingleChannelDac,
     P0: OutputPin,
     P1: OutputPin,
     P2: OutputPin,
@@ -603,7 +601,7 @@ where
         spi: &mut SPI,
         i2c: I2C,
         cs_rtd: CsRtd,
-        dac: DAC,
+        dac: Dac,
         switch_pins: (P0, P1, P2),
         // pwm: (PWM0, PWM1, PWM2),
         K_cell: f32, // conductivity cell constant
