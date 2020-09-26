@@ -79,7 +79,6 @@ use embedded_hal::{
     blocking::i2c::{Read, Write, WriteRead},
     blocking::spi,
     digital::v2::OutputPin,
-    PwmPin,
 };
 use filter::kalman::kalman_filter::KalmanFilter;
 
@@ -146,24 +145,17 @@ impl CalPt {
     }
 }
 
-// #[derive(Debug, Clone, Copy)]
-// /// Data for a single RTD (or thermister) calibration point.
-// pub struct CalPtRtd {
-//     pub R: f32, // Resistance, ohms
-//     pub T: f32, // in Celsius
-// }
-//
-// impl CalPtRtd {
-//     pub fn new(R: f32, T: f32) -> Self {
-//         Self { R, T }
-//     }
-// }
-
 #[derive(Debug, Clone, Copy)]
 /// Data for a single ORP (or other ion measurement) calibration point.
 pub struct CalPtOrp {
     pub V: f32,   // voltage, in Volts
     pub ORP: f32, // in mV
+}
+
+impl CalPtOrp {
+    pub fn new(V: f32, ORP: f32) -> Self {
+        Self { V, ORP }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -179,9 +171,17 @@ impl CalPtT {
     }
 }
 
-impl CalPtOrp {
-    pub fn new(V: f32, ORP: f32) -> Self {
-        Self { V, ORP }
+#[derive(Debug, Clone, Copy)]
+/// Data for a single ORP (or other ion measurement) calibration point.
+pub struct CalPtEc {
+    pub reading: f32, // reading
+    pub ec: f32,      // in μS/cm
+    pub T: f32,       // in Celsius
+}
+
+impl CalPtEc {
+    pub fn new(reading: f32, ec: f32, T: f32) -> Self {
+        Self { reading, ec, T }
     }
 }
 
@@ -279,7 +279,7 @@ impl<I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>, E> PhSensor
     /// noise, and provides a more accurate reading.
     pub fn read(&mut self, t: TempSource) -> Result<f32, ads1x1x::Error<E>> {
         self.predict();
-        // self.update(t)?;
+        self.update(t)?;
         // self.filter.x is mean, variance. We only care about the mean
         Ok(self.filter.x[0])
     }
@@ -299,11 +299,13 @@ impl<I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>, E> PhSensor
 
         // We don't re-use `self.read_voltage` here due to i16/f32 type issues.
         let pH = ph_from_voltage(
+            // todo: This is hard crashing WM if adc is missing.
             voltage_from_adc(block!(self
                 .adc
                 .as_mut()
                 .expect("Measurement after I2C freed")
                 .read(&mut DifferentialA0A1))?),
+            // 2.,
             T,
             &self.cal_1,
             &self.cal_2,
@@ -645,10 +647,18 @@ where
         // that they may have errors due to this, but still take the readings.
         let T2 = T.unwrap_or(20.);
 
+        // todo block! Readings are crashing the program instead of failing
+        // todo gracefully!
+
+        // Readings {
+        //     pH: Ok(0.),
+        //     T: Ok(0.),
+        //     ORP: Ok(0.),
+        //     ec: Ok(0.),
+        // }
+
         Readings {
-            // todo: pH issues
-            // pH: self.read_ph(T2),
-            pH: Err(SensorError::Bus),
+            pH: self.read_ph(T2),
             T,
             ORP: self.read_orp(),
             ec: self.read_ec(delay, T2, apb1, timer),
@@ -686,16 +696,13 @@ where
     }
 
     /// Read electrical conductivity.
-    pub fn read_ec<D>(
+    pub fn read_ec<D: DelayMs<u16>>(
         &mut self,
         delay: &mut D,
         T: f32,
         apb1: &mut APB1,
         timer: &mut Timer<TIM2>,
-    ) -> Result<f32, SensorError>
-    where
-        D: DelayUs<u16> + DelayMs<u16>,
-    {
+    ) -> Result<f32, SensorError> {
         self.orp_take();
         match self
             .ec
@@ -726,14 +733,23 @@ where
         }
     }
 
-    // pub fn read_ec_voltage(&mut self) -> Result<(f32, f32), SensorError> {
-    //     self.orp_take();
-    //
-    //     match self.ec.read_voltage(&mut self.orp.adc) {
-    //         Ok(v) => Ok(v),
-    //         Err(e) => Err(SensorError::Bus),
-    //     }
-    // }
+    /// Uncalibrated EC reading without calibration or temp comp. Not straight voltage.
+    pub fn read_ec_voltage<D: DelayMs<u16>>(
+        &mut self,
+        delay: &mut D,
+        apb1: &mut APB1,
+        timer: &mut Timer<TIM2>,
+    ) -> Result<f32, SensorError> {
+        self.orp_take();
+
+        match self
+            .ec
+            .read_direct(&mut self.orp.adc.as_mut().unwrap(), delay, apb1, timer)
+        {
+            Ok(v) => Ok(v),
+            Err(_) => Err(SensorError::Bus),
+        }
+    }
 
     pub fn calibrate_all_ph(&mut self, pt0: CalPt, pt1: CalPt, pt2: Option<CalPt>) {
         self.ph.calibrate_all(pt0, pt1, pt2);
@@ -748,9 +764,9 @@ where
         self.orp.calibrate_all(pt);
     }
 
-    // pub fn calibrate_all_ec(&mut self, pt: CalPtOrp) {
-    //     self.orp_ec.calibrate_all(pt);
-    // }
+    pub fn calibrate_all_ec(&mut self, pt0: CalPtEc, pt1: Option<CalPtEc>) {
+        self.ec.calibrate_all(pt0, pt1);
+    }
 
     /// Helper function to take the I2C peripheral.
     pub fn ph_take(&mut self) {

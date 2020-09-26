@@ -365,7 +365,7 @@ static LOOKUP_TABLE: &[TempPair] = &[
 /// degrees Celcius.
 ///
 /// *Note*: This won't handle edge cases very well.
-fn lookup_temperature(val: u16, type_: RtdType) -> u32 {
+fn lookup_temperature(val: u16, _type: RtdType) -> u32 {
     // todo: Take into account nominal resistance here, eg 100 or 1000ohm.
 
     let mut first = &(0, 10000);
@@ -382,10 +382,8 @@ fn lookup_temperature(val: u16, type_: RtdType) -> u32 {
 
     if let Some(second) = second {
         // todo: This panics if no device is connected.
-        let temp = (second.0 - first.0) as u32 * (val - first.1) as u32
-            / (second.1 - first.1) as u32
-            + first.0 as u32;
-        temp
+        (second.0 - first.0) as u32 * (val - first.1) as u32 / (second.1 - first.1) as u32
+            + first.0 as u32
     } else {
         0
     }

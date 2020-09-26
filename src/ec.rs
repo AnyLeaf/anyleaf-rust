@@ -2,15 +2,9 @@
 
 #![allow(non_snake_case)]
 
-// todo: temp
-use rtt_target::rprintln;
-
 use embedded_hal::{
     adc::OneShot,
-    blocking::{
-        delay::{DelayMs, DelayUs},
-        i2c,
-    },
+    blocking::{delay::DelayMs, i2c},
     digital::v2::OutputPin,
     // PwmPin,
 };
@@ -27,6 +21,8 @@ use stm32f3xx_hal::{
     rcc::APB1,
     timer::{Channel, Timer},
 };
+
+use crate::CalPtEc;
 
 // Frequencies for the PWM channels.
 // const F_LOW: u16 = 94; // uS range
@@ -59,12 +55,12 @@ impl EcGain {
         }
     }
     /// Drop by one level.
-    fn drop(&self) -> Self {
+    fn _drop(&self) -> Self {
         match self {
             Self::One => panic!("Gain is already at minimum"),
             Self::Two => Self::One,
             Self::Three => Self::Two,
-            Self::Four=> Self::Three,
+            Self::Four => Self::Three,
             Self::Five => Self::Four,
             Self::Six => Self::Five,
             Self::Seven => Self::Six,
@@ -168,7 +164,9 @@ where
 {
     pub dac: Dac,                         // todo pub temp
     pub gain_switch: ADG1608<P0, P1, P2>, // todo pub temp.
-    K_cell: f32, // constant of the conductivity probe used.
+    K_cell: f32,                          // constant of the conductivity probe used.
+    cal_1: CalPtEc,
+    cal_2: Option<CalPtEc>,
 }
 
 impl<P0, P1, P2> EcSensor<P0, P1, P2>
@@ -182,6 +180,8 @@ where
             dac,
             gain_switch: ADG1608::new(switch_pins.0, switch_pins.1, switch_pins.2),
             K_cell,
+            cal_1: CalPtEc::new(100., 1000., 23.),
+            cal_2: Some(CalPtEc::new(1_413., 1_413., 23.)),
         }
     }
 
@@ -192,9 +192,9 @@ where
         I2C: i2c::WriteRead<Error = E> + i2c::Write<Error = E> + i2c::Read<Error = E>,
     {
         // todo: Experimenting with fixed gain as temp measure.
-        // self.dac.set_voltage(2.);
+        // self.dac.set_voltage(1.);
         // self.gain_switch.set(EcGain::Six);
-        // return Ok((2., EcGain::Six));
+        // return Ok((1., EcGain::Six));
 
         // Set multiplexer to highest gain resistance
         let mut gain = EcGain::One;
@@ -208,8 +208,9 @@ where
         let (mut v_p, mut v_m) = self.read_voltage(adc)?;
 
         // `v_def` is the desired applied voltage across the conductivity electrodes.
-        // todo: How do we set it?
-        let v_def = 1.;
+        // Loose requirement from AD engineers: "100mV is good enough", and don't
+        // overvolt the probe.
+        let v_def = 0.1;
 
         while v_p + v_m <= (0.3 * 2. * v_exc as f32) && gain != EcGain::Seven {
             gain = gain.raise();
@@ -258,6 +259,44 @@ where
         Ok((v_p, v_m))
     }
 
+    /// Misleading name compared to other sensors. This is our uncalibrated reading, used
+    /// for calibrating. Similar to others sensors' `read_voltage()`.
+    pub fn read_direct<D, I2C, E>(
+        &mut self,
+        adc: &mut crate::Adc<I2C>,
+        delay: &mut D,
+        apb1: &mut APB1,
+        timer: &mut Timer<TIM2>,
+    ) -> Result<f32, E>
+    where
+        D: DelayMs<u16>,
+        I2C: i2c::WriteRead<Error = E> + i2c::Write<Error = E> + i2c::Read<Error = E>,
+    {
+        // [dis]enabling the dac each reading should improve battery usage.
+        self.dac.enable(apb1);
+        start_pwm(timer);
+        let (v_exc, gain) = self.set_range(adc)?;
+
+        delay.delay_ms(50); // This delay may not be required, but seems to make sense.
+
+        let (v_p, v_m) = self.read_voltage(adc)?;
+
+        stop_pwm(timer);
+        self.dac.disable(apb1);
+
+        // See also
+        // https://wiki.analog.com/resources/eval/user-guides/eval-adicup360/reference_designs/demo_cn0411
+        // https://github.com/analogdevicesinc/EVAL-ADICUP360/blob/master/projects/ADuCM360_demo_cn0411/src/CN0411.c
+
+        // `pp` means peak-to-peak
+        let V_cond_pp = 0.1 * v_p + 0.1 * v_m; // CN0411, Eq 6
+        let I_cond_pp = (2. * v_exc - V_cond_pp) / (gain.resistance() as f32); // CN0411, Eq 7
+        let Y_sol = self.K_cell * I_cond_pp / V_cond_pp; // CN0411, Eq 8
+
+        // todo: Temp compensation
+        Ok(Y_sol)
+    }
+
     /// Take a conductivity measurement. Result is in uS/cm
     /// todo: Way to read TDS (sep fn, or perhaps an enum)
     /// todo: Return result or option.
@@ -270,38 +309,30 @@ where
         timer: &mut Timer<TIM2>,
     ) -> Result<f32, E>
     where
-        D: DelayUs<u16> + DelayMs<u16>,
+        D: DelayMs<u16>,
         I2C: i2c::WriteRead<Error = E> + i2c::Write<Error = E> + i2c::Read<Error = E>,
     {
-        // [dis]enabling the dac each reading should improve battery usage.
-        self.dac.enable(apb1); // todo: Put back
-
-        // TODO: pUT BACK
-        // start_pwm(timer);
-        let (v_exc, gain) = self.set_range(adc)?;
-
-        delay.delay_ms(500); // todo experiment
-
-        let (v_p, v_m) = self.read_voltage(adc)?;
-
-        delay.delay_ms(500); // todo experiment
-
-        // todo: put back
-        // stop_pwm(timer);
-        // todo: Put back
-        // self.dac.disable(apb1);
-
-        // See also
-        // https://wiki.analog.com/resources/eval/user-guides/eval-adicup360/reference_designs/demo_cn0411
-        // https://github.com/analogdevicesinc/EVAL-ADICUP360/blob/master/projects/ADuCM360_demo_cn0411/src/CN0411.c
-
-        // `pp` means peak-to-peak
-        let V_cond_pp = 0.1 * v_p + 0.1 * v_m; // CN0411, Eq 6
-        let I_cond_pp = (2. * v_exc - V_cond_pp) / (gain.resistance() as f32); // CN0411, Eq 7
-        let Y_sol = self.K_cell * I_cond_pp / V_cond_pp; // CN0411, Eq 8
-
-        // todo: Temp compensation:
-
-        Ok(Y_sol) // todo
+        let Y_sol = self.read_direct(adc, delay, apb1, timer)?;
+        Ok(ec_from_voltage(Y_sol, &self.cal_1, &self.cal_2))
     }
+
+    pub fn calibrate_all(&mut self, pt0: CalPtEc, pt1: Option<CalPtEc>) {
+        self.cal_1 = pt0;
+        self.cal_2 = pt1;
+    }
+}
+
+/// Convert sensor voltage to ORP voltage
+/// We model the relationship between sensor output and ec linearly.
+fn ec_from_voltage(reading: f32, cal_0: &CalPtEc, cal_1: &Option<CalPtEc>) -> f32 {
+    // a is the slope, ec / reading.
+    let (reading1, ec1) = match cal_1 {
+        Some(c1) => (c1.reading, c1.ec),
+        None => (0., 0.),
+    };
+
+    let a = (ec1 - cal_0.ec) / (reading1 - cal_0.reading);
+    let b = ec1 - a * reading1;
+    // (a + T_comp) * V + b  // todo: Temp cmop
+    a * reading + b
 }
