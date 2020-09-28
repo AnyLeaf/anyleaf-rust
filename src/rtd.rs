@@ -29,17 +29,46 @@ enum Register {
     FAULT_STATUS = 0x07,
 }
 
-// Configuration register definition. From Datasheet, Table 2.
-const _VBIAS_OFF: u8 = 0x00;
-const _VBIAS_ON: u8 = 0x01;
-const _CONVERSION_MODE_OFF: u8 = 0x00;
-const _CONVERSION_MODE_AUTO: u8 = 0x01;
-const _ONE_SHOT: u8 = 0x01; // auto-clear
-const TWO_OR_FOUR_WIRE: u8 = 0x00;
-const THREE_WIRE: u8 = 0x01;
-const _FAULT_STATUS_CLEAR: u8 = 0x01; // auto-clear
-const FILTER_60HZ: u8 = 0x00;
-const FILTER_50_HZ: u8 = 0x01;
+// See Table2. Configuration Register Definition for info on these enums.
+
+#[repr(u8)]
+#[derive(Clone, Copy, Debug)]
+/// vbias voltage; must be On to perform conversion.
+pub enum Vbias {
+    Off = 0,
+    On = 1,
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy, Debug)]
+/// Set `Auto` to automatically perform conversion.
+pub enum ConversionMode {
+    NormallyOff = 0,
+    Auto = 1,
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy, Debug)]
+/// Set One-shot, or leave cleared for continuous conversion mode.
+pub enum OneShot {
+    Continuous = 0,
+    OneShot = 1, // auto-clear
+}
+
+#[derive(Clone, Copy, Debug)]
+/// Thinly wraps `max31865::SensorType`.
+pub enum Wires {
+    Two,
+    Three,
+    Four,
+}
+
+#[repr(u8)]
+/// Mains freq to filter out, eg 50Hz in Europe, 50Hz in US.
+pub enum FilterMode {
+    Filter60Hz = 0,
+    Filter50Hz = 1,
+}
 
 // Fault detection cycle control. From Datasheet, Table 3.
 // Naming convention: FAULT_D3_D2.
@@ -68,20 +97,6 @@ pub enum RtdType {
     // todo support in your fork.
     Pt100,
     Pt1000,
-}
-
-#[derive(Clone, Copy, Debug)]
-/// Thinly wraps `max31865::SensorType`.
-pub enum Wires {
-    Two,
-    Three,
-    Four,
-}
-
-#[repr(u8)]
-pub enum FilterMode {
-    Filter60Hz = FILTER_60HZ,
-    Filter50Hz = FILTER_50_HZ,
 }
 
 /// This provides a higher level interface than in the `max31865` module.
@@ -117,11 +132,10 @@ impl<CS: OutputPin> Rtd<CS> {
         result
             .configure(
                 spi,
-                true, // vbias voltage; must be true to perform conversion.
-                true, // automatically perform conversion
-                true, // One-shot mode
-                // todo: Make this configurable once you add non-US markets.
-                FilterMode::Filter60Hz, // mains freq, eg 50Hz in Europe, 50Hz in US.
+                Vbias::On,
+                ConversionMode::Auto,
+                OneShot::OneShot,
+                FilterMode::Filter60Hz,
             )
             .ok();
 
@@ -147,18 +161,18 @@ impl<CS: OutputPin> Rtd<CS> {
     pub fn configure<SPI, E>(
         &mut self,
         spi: &mut SPI,
-        vbias: bool,
-        conversion_mode: bool,
-        one_shot: bool,
+        vbias: Vbias,
+        conversion_mode: ConversionMode,
+        one_shot: OneShot,
         filter_mode: FilterMode,
     ) -> Result<(), E>
     where
         SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
         let wires = match self.wires {
-            Wires::Two => TWO_OR_FOUR_WIRE,
-            Wires::Three => THREE_WIRE,
-            Wires::Four => TWO_OR_FOUR_WIRE,
+            Wires::Two => 0,
+            Wires::Three => 1,
+            Wires::Four => 0,
         };
 
         let conf: u8 = ((vbias as u8) << 7)
@@ -167,8 +181,7 @@ impl<CS: OutputPin> Rtd<CS> {
             | (wires << 4)
             | (filter_mode as u8);
 
-        self.write(spi, Register::CONFIG, conf)?;
-
+        self.write(spi, Register::CONFIG_W, conf)?;
         Ok(())
     }
 
@@ -187,12 +200,13 @@ impl<CS: OutputPin> Rtd<CS> {
     where
         SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
+        // todo: Don't overwrite the whole config!
         self.configure(
             spi,
-            true,                   // vbias voltage; must be true to perform conversion.
-            true,                   // automatically perform conversion
-            true,                   // One-shot mode
-            FilterMode::Filter50Hz, // mains freq, eg 50Hz in Europe, 50Hz in US.
+            Vbias::On,
+            ConversionMode::Auto,
+            OneShot::OneShot,
+            FilterMode::Filter50Hz,
         )?;
 
         Ok(())
@@ -262,22 +276,49 @@ impl<CS: OutputPin> Rtd<CS> {
         Ok(temp as f32 / 100.)
     }
 
-    /// Find the fault status
+    /// Return the configuration register data.
+    pub fn read_config<SPI, E>(&mut self, spi: &mut SPI) -> Result<[bool; 8], E>
+    where
+        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+    {
+        let status = self.read_data(spi, Register::CONFIG)?;
+
+        let filter = status & (1 << (1 - 1)) > 0;
+        let fault_status = status & (1 << (2 - 1)) > 0;
+        let fault_detb = status & (1 << (3 - 1)) > 0;
+        let fault_deta = status & (1 << (4 - 1)) > 0;
+        let wire = status & (1 << (5 - 1)) > 0;
+        let one_shot = status & (1 << (6 - 1)) > 0;
+        let conv_mode = status & (1 << (7 - 1)) > 0;
+        let vbias = status & (1 << (8 - 1)) > 0;
+
+        Ok([
+            vbias,
+            conv_mode,
+            one_shot,
+            wire,
+            fault_deta,
+            fault_detb,
+            fault_status,
+            filter,
+        ])
+    }
+
+    /// Find the fault status. See Table 7.
     pub fn fault_status<SPI, E>(&mut self, spi: &mut SPI) -> Result<[bool; 6], E>
     where
         SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
-        // todo: REturn a string description, or enum.
         let status = self.read_data(spi, Register::FAULT_STATUS)?;
 
-        let overv = status & (1 << (3 - 1)) > 0;
-        let rtdin = status & (1 << (4 - 1)) > 0;
-        let refin = status & (1 << (5 - 1)) > 0;
-        let refin2 = status & (1 << (6 - 1)) > 0;
-        let rtd_low = status & (1 << (7 - 1)) > 0;
         let rtd_high = status & (1 << (8 - 1)) > 0;
+        let rtd_low = status & (1 << (7 - 1)) > 0;
+        let refin1 = status & (1 << (6 - 1)) > 0;
+        let refin2 = status & (1 << (5 - 1)) > 0;
+        let rtdin = status & (1 << (4 - 1)) > 0;
+        let overv = status & (1 << (3 - 1)) > 0;
 
-        Ok([overv, rtdin, refin, refin2, rtd_low, rtd_high])
+        Ok([rtd_high, rtd_low, refin1, refin2, rtdin, overv])
     }
 
     /// (From driver notes:   You can perform calibration by putting the sensor in boiling (100 degrees

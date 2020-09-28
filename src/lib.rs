@@ -568,7 +568,6 @@ pub struct Readings {
 /// todo use it in its project code, although we could change that.
 // todo: Be able to properly fail for both SPI and I2C errors. We currently
 // todo: only properly handle I2C ones.
-// pub struct WaterMonitor<I2C, CsRtd, DAC, P0, P1, P2, PWM0, PWM1, PWM2, EI>
 pub struct WaterMonitor<I2C, CsRtd, P0, P1, P2, EI>
 where
     I2C: WriteRead<Error = EI> + Write<Error = EI> + Read<Error = EI>,
@@ -576,18 +575,13 @@ where
     P0: OutputPin,
     P1: OutputPin,
     P2: OutputPin,
-    // PWM0: PwmPin,
-    // PWM1: PwmPin,
-    // PWM2: PwmPin,
 {
     pub rtd: Rtd<CsRtd>,         // Max31865 RTD chip.
     pub ph: PhSensor<I2C, EI>,   // at 0x48. Inludes the temp sensor at input A3.
     pub orp: OrpSensor<I2C, EI>, // at 0x49. Inlucdes the ec sensor at input A3.
-    // pub ec: EcSensor<DAC, P0, P1, P2, PWM0, PWM1, PWM2>,
     pub ec: EcSensor<P0, P1, P2>,
 }
 
-// impl<I2C, CsRtd, DAC, P0, P1, P2, PWM0, PWM1, PWM2, EI>
 impl<I2C, CsRtd, P0, P1, P2, EI> WaterMonitor<I2C, CsRtd, P0, P1, P2, EI>
 where
     I2C: WriteRead<Error = EI> + Write<Error = EI> + Read<Error = EI>,
@@ -595,9 +589,6 @@ where
     P0: OutputPin,
     P1: OutputPin,
     P2: OutputPin,
-    // PWM0: PwmPin,
-    // PWM1: PwmPin,
-    // PWM2: PwmPin,
 {
     pub fn new<SPI, ES>(
         spi: &mut SPI,
@@ -605,7 +596,6 @@ where
         cs_rtd: CsRtd,
         dac: Dac,
         switch_pins: (P0, P1, P2),
-        // pwm: (PWM0, PWM1, PWM2),
         K_cell: f32, // conductivity cell constant
         dt: f32,     // seconds
     ) -> Self
@@ -629,7 +619,6 @@ where
     }
 
     // Read all sensors.
-    // apb1: todo temp
     pub fn read_all<SPI, ES, D>(
         &mut self,
         spi: &mut SPI,
