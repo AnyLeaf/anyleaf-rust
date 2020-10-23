@@ -71,7 +71,7 @@ use ads1x1x::{
     channel::{DifferentialA0A1, SingleA2},
     ic::{Ads1115, Resolution16Bit},
     interface::I2cInterface,
-    Ads1x1x, SlaveAddr,
+    Ads1x1x, FullScaleRange, SlaveAddr,
 };
 use embedded_hal::{
     adc::OneShot,
@@ -186,7 +186,7 @@ impl CalPtEc {
 }
 
 pub struct PhSensor<I2C: Read<Error = E> + Write<Error = E> + WriteRead<Error = E>, E> {
-    adc: Option<
+    pub(crate) adc: Option<
         Ads1x1x<
             ads1x1x::interface::I2cInterface<I2C>,
             Ads1115,
@@ -552,12 +552,12 @@ pub enum SensorError {
     BadMeasurement,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Readings {
-    pub pH: Result<f32, SensorError>,
     pub T: Result<f32, SensorError>,
-    pub ec: Result<f32, SensorError>,
+    pub pH: Result<f32, SensorError>,
     pub ORP: Result<f32, SensorError>,
+    pub ec: Result<f32, SensorError>,
 }
 
 /// We use this to pull data from the Water Monitor to an external program over I2C.
@@ -605,6 +605,13 @@ where
         let rtd = Rtd::new(spi, cs_rtd, RtdType::Pt100, Wires::Three);
 
         let mut ph = PhSensor::new(i2c, dt);
+        // Use the default range of 2.048V for pH measurement. We use 6.144V for checking
+        // battery life, and if plugged in.
+        ph.adc
+            .as_mut()
+            .expect("Measurement after I2C freed")
+            .set_full_scale_range(FullScaleRange::Within2_048V);
+
         let i2c = ph.free();
 
         let mut orp = OrpSensor::new_alt_addr(i2c, dt);
@@ -628,7 +635,7 @@ where
     ) -> Readings
     where
         SPI: spi::Write<u8, Error = ES> + spi::Transfer<u8, Error = ES>,
-        D: DelayUs<u16> + DelayMs<u16>,
+        D: DelayMs<u16>,
     {
         let T = self.read_temp(spi);
         // Don't invalidate the temperature-compensated readings just because
@@ -639,18 +646,13 @@ where
         // todo block! Readings are crashing the program instead of failing
         // todo gracefully!
 
-        // Readings {
-        //     pH: Ok(0.),
-        //     T: Ok(0.),
-        //     ORP: Ok(0.),
-        //     ec: Ok(0.),
-        // }
-
         Readings {
-            pH: self.read_ph(T2),
+            // pH: self.read_ph(T2),
+            pH: Ok(0.), // todo: temp TS
             T,
             ORP: self.read_orp(),
-            ec: self.read_ec(delay, T2, apb1, timer),
+            // ec: self.read_ec(delay, T2, apb1, timer),  // todo: temp tS
+            ec: Ok(0.),
         }
     }
 
@@ -755,6 +757,39 @@ where
 
     pub fn calibrate_all_ec(&mut self, pt0: CalPtEc, pt1: Option<CalPtEc>) {
         self.ec.calibrate_all(pt0, pt1);
+    }
+
+    /// Check 1 or USB power voltage, connected to A2 of the pH
+    /// ADC.
+    pub fn check_battery_voltage(&mut self) -> Result<f32, SensorError> {
+        self.ph_take();
+
+        // Set a max range of 6.144V for testing the ~5v power connection.
+        ph.adc
+            .as_mut()
+            .expect("Measurement after I2C freed")
+            .set_full_scale_range(FullScaleRange::Within6_144V);
+
+        let reading = block!(self
+            .ph
+            .adc
+            .as_mut()
+            .expect("Measurement after I2C freed")
+            .read(&mut SingleA2));
+
+        // Reset the range for pH measurement.
+        ph.adc
+            .as_mut()
+            .expect("Measurement after I2C freed")
+            .set_full_scale_range(FullScaleRange::Within2_048V);
+
+        match reading {
+            Ok(r) => {
+                let vref = 6.144;
+                Ok((r as f32 / 32_768.) * vref)
+            }
+            Err(_) => Err(SensorError::Bus),
+        }
     }
 
     /// Helper function to take the I2C peripheral.

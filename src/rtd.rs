@@ -93,13 +93,11 @@ impl Register {
 
 #[derive(Clone, Copy, Debug)]
 pub enum RtdType {
-    // todo: The lib you're using only supports PT100s. Will have to add PT1000
-    // todo support in your fork.
     Pt100,
     Pt1000,
 }
 
-/// This provides a higher level interface than in the `max31865` module.
+/// A struct used to describe the RTD. Owns the cs pin.
 pub struct Rtd<CS: OutputPin> {
     cs: CS,
     calibration: u32,
@@ -283,7 +281,7 @@ impl<CS: OutputPin> Rtd<CS> {
     {
         let status = self.read_data(spi, Register::CONFIG)?;
 
-        let filter = status & (1 << (1 - 1)) > 0;
+        let filter = status & (1 << 0) > 0;
         let fault_status = status & (1 << (2 - 1)) > 0;
         let fault_detb = status & (1 << (3 - 1)) > 0;
         let fault_deta = status & (1 << (4 - 1)) > 0;

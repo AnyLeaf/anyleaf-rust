@@ -277,7 +277,8 @@ where
         start_pwm(timer);
         let (v_exc, gain) = self.set_range(adc)?;
 
-        delay.delay_ms(50); // This delay may not be required, but seems to make sense.
+        // todo: If you have trouble once testing EC again, look here.
+        // delay.delay_ms(50); // This delay may not be required, but seems to make sense.
 
         let (v_p, v_m) = self.read_voltage(adc)?;
 
