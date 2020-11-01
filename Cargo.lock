@@ -84,6 +84,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "cfg-if"
+version = "0.1.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4785bdd1c96b2a846b2bd7cc02e86b6b3dbf14e7e53446c4f54c92a361040822"
+
+[[package]]
 name = "chrono"
 version = "0.4.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -124,6 +130,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "embedded-dma"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "46c8c02e4347a0267ca60813c952017f4c5948c232474c6010a381a337f1bda4"
+dependencies = [
+ "stable_deref_trait",
 ]
 
 [[package]]
@@ -242,6 +257,12 @@ dependencies = [
  "paste-impl",
  "proc-macro-hack",
 ]
+
+[[package]]
+name = "paste"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba7ae1a2180ed02ddfdb5ab70c70d596a26dd642e097bb6fe78b1bde8588ed97"
 
 [[package]]
 name = "paste-impl"
@@ -379,7 +400,7 @@ dependencies = [
  "approx",
  "num-complex",
  "num-traits",
- "paste",
+ "paste 0.1.15",
 ]
 
 [[package]]
@@ -401,9 +422,9 @@ dependencies = [
 
 [[package]]
 name = "stm32f3"
-version = "0.11.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2bcd49e908348f01acdc7ee1e0e1f8b9b709f99248749f6f79dcd88dc95ff6b2"
+checksum = "636387c2c5af11075c8ed3ef203c01460204be3a479397c2380622cbd61a673f"
 dependencies = [
  "bare-metal",
  "cortex-m",
@@ -417,12 +438,14 @@ version = "0.5.0"
 dependencies = [
  "bare-metal",
  "cast",
+ "cfg-if",
  "cortex-m",
  "cortex-m-rt",
+ "embedded-dma",
  "embedded-hal",
  "nb",
+ "paste 1.0.2",
  "rtcc",
- "stable_deref_trait",
  "stm32-usbd",
  "stm32f3",
  "void",

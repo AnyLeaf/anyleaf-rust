@@ -60,7 +60,7 @@
 //! ```
 
 #![no_std]
-#![allow(non_snake_case)]
+#![allow(non_snake_case, clippy::needless_doctest_main)]
 #![feature(unsize)] // Used by the `max31865` module.
 
 #[macro_use(block)]
@@ -75,7 +75,7 @@ use ads1x1x::{
 };
 use embedded_hal::{
     adc::OneShot,
-    blocking::delay::{DelayMs, DelayUs},
+    blocking::delay::DelayMs,
     blocking::i2c::{Read, Write, WriteRead},
     blocking::spi,
     digital::v2::OutputPin,
@@ -610,7 +610,8 @@ where
         ph.adc
             .as_mut()
             .expect("Measurement after I2C freed")
-            .set_full_scale_range(FullScaleRange::Within2_048V);
+            .set_full_scale_range(FullScaleRange::Within2_048V)
+            .ok();
 
         let i2c = ph.free();
 
@@ -625,7 +626,7 @@ where
         Self { ph, orp, rtd, ec }
     }
 
-    // Read all sensors.
+    // Read all sensors. EC reading is in uS/Cm2
     pub fn read_all<SPI, ES, D>(
         &mut self,
         spi: &mut SPI,
@@ -646,13 +647,13 @@ where
         // todo block! Readings are crashing the program instead of failing
         // todo gracefully!
 
+        // Read EC last, so we don't turn on the activation current until the other readings
+        // have been takien.
         Readings {
-            // pH: self.read_ph(T2),
-            pH: Ok(0.), // todo: temp TS
+            pH: self.read_ph(T2),
             T,
             ORP: self.read_orp(),
-            // ec: self.read_ec(delay, T2, apb1, timer),  // todo: temp tS
-            ec: Ok(0.),
+            ec: self.read_ec(delay, T2, apb1, timer),
         }
     }
 
@@ -765,10 +766,12 @@ where
         self.ph_take();
 
         // Set a max range of 6.144V for testing the ~5v power connection.
-        ph.adc
+        self.ph
+            .adc
             .as_mut()
             .expect("Measurement after I2C freed")
-            .set_full_scale_range(FullScaleRange::Within6_144V);
+            .set_full_scale_range(FullScaleRange::Within6_144V)
+            .ok();
 
         let reading = block!(self
             .ph
@@ -778,10 +781,12 @@ where
             .read(&mut SingleA2));
 
         // Reset the range for pH measurement.
-        ph.adc
+        self.ph
+            .adc
             .as_mut()
             .expect("Measurement after I2C freed")
-            .set_full_scale_range(FullScaleRange::Within2_048V);
+            .set_full_scale_range(FullScaleRange::Within2_048V)
+            .ok();
 
         match reading {
             Ok(r) => {

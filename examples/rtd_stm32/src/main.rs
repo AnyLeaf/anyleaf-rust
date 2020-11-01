@@ -14,7 +14,7 @@ use hal::{
     delay::Delay,
     prelude::*,
     spi::{Mode, Phase, Polarity, Spi},
-    stm32,
+    pac,
 };
 use rtt_target::{rprintln, rtt_init_print};
 use stm32f3xx_hal as hal;
@@ -25,7 +25,7 @@ fn main() -> ! {
 
     // Set up i2C.
     let cp = cortex_m::Peripherals::take().unwrap();
-    let dp = stm32::Peripherals::take().unwrap();
+    let dp = pac::Peripherals::take().unwrap();
 
     let mut flash = dp.FLASH.constrain();
     let mut rcc = dp.RCC.constrain();
@@ -65,18 +65,14 @@ fn main() -> ! {
     let mut rtd = Rtd::new(&mut spi, cs, RtdType::Pt100, Wires::Three);
 
     loop {
-        rprintln!("Temp: {}°C", rtd.read(&mut spi).unwrap());
-        rprintln!("Resistance: {}Ω", rtd.read_resistance(&mut spi).unwrap());
-        rprintln!("Faults: {:?}", rtd.fault_status(&mut spi).unwrap());
+        rprintln!("Temp: {}°C", rtd.read(&mut spi));
+        rprintln!("Resistance: {}Ω", rtd.read_resistance(&mut spi));
+        rprintln!("Faults: {:?}", rtd.fault_status(&mut spi));
 
         delay.delay_ms(2_000_u16);
     }
 }
 
-// This handler will cause a crash if present in Debug, and one if not present
-// in Release mode. We should be only building in release mode, since it offers
-// a large performance boost. So much so, that any increase in compile time
-// is offset by the faster init speed.
 #[panic_handler]
 fn my_panic(_info: &core::panic::PanicInfo) -> ! {
     loop {}

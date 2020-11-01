@@ -1,12 +1,9 @@
 //! Code that triggers parts of the ec circuit: Analog Devices CN-0411.
 
-#![allow(non_snake_case)]
-
 use embedded_hal::{
     adc::OneShot,
     blocking::{delay::DelayMs, i2c},
     digital::v2::OutputPin,
-    // PwmPin,
 };
 
 use ads1x1x::{
@@ -25,6 +22,10 @@ use stm32f3xx_hal::{
 use crate::CalPtEc;
 
 // Frequencies for the PWM channels.
+// todo: finer resolution,
+const PWM_THRESH: f32 = 900.;
+const PSC_LOW: u16 = 532;
+const PSC_HIGH: u16 = 20;
 // const F_LOW: u16 = 94; // uS range
 // const F_HIGH: u16 = 2_400; // mS range
 
@@ -167,6 +168,9 @@ where
     K_cell: f32,                          // constant of the conductivity probe used.
     cal_1: CalPtEc,
     cal_2: Option<CalPtEc>,
+    // Temp-compensated, in uS/cm2; post-processing. Used for determining
+    // how to set the PWM freq for the next cycle.
+    last_meas: f32,
 }
 
 impl<P0, P1, P2> EcSensor<P0, P1, P2>
@@ -175,6 +179,8 @@ where
     P1: OutputPin,
     P2: OutputPin,
 {
+    /// Prior to taking measurements, set up the timer at the
+    /// appropriate frequency and resolution.
     pub fn new(dac: Dac, switch_pins: (P0, P1, P2), K_cell: f32) -> Self {
         Self {
             dac,
@@ -182,6 +188,7 @@ where
             K_cell,
             cal_1: CalPtEc::new(100., 1000., 23.),
             cal_2: Some(CalPtEc::new(1_413., 1_413., 23.)),
+            last_meas: 100.,
         }
     }
 
@@ -282,8 +289,8 @@ where
 
         let (v_p, v_m) = self.read_voltage(adc)?;
 
-        stop_pwm(timer);
-        self.dac.disable(apb1);
+        // stop_pwm(timer);
+        // self.dac.disable(apb1);
 
         // See also
         // https://wiki.analog.com/resources/eval/user-guides/eval-adicup360/reference_designs/demo_cn0411
@@ -294,7 +301,6 @@ where
         let I_cond_pp = (2. * v_exc - V_cond_pp) / (gain.resistance() as f32); // CN0411, Eq 7
         let Y_sol = self.K_cell * I_cond_pp / V_cond_pp; // CN0411, Eq 8
 
-        // todo: Temp compensation
         Ok(Y_sol)
     }
 
@@ -314,7 +320,25 @@ where
         I2C: i2c::WriteRead<Error = E> + i2c::Write<Error = E> + i2c::Read<Error = E>,
     {
         let Y_sol = self.read_direct(adc, delay, apb1, timer)?;
-        Ok(ec_from_voltage(Y_sol, &self.cal_1, &self.cal_2))
+
+        let result = ec_from_voltage(Y_sol, &self.cal_1, &self.cal_2, T);
+
+        // Change the PWM frequency for the next cycle, if required.
+        if result > PWM_THRESH && self.last_meas < PWM_THRESH {
+            // set 2.4khz.
+            // Note that both settings use the same ARR value; just change PSC.
+            unsafe {
+                (*TIM2::ptr()).psc.write(|w| w.psc().bits(PSC_HIGH));
+            }
+        } else if result < PWM_THRESH && self.last_meas > PWM_THRESH {
+            // set 94Hz
+            unsafe {
+                (*TIM2::ptr()).psc.write(|w| w.psc().bits(PSC_LOW));
+            }
+        }
+
+        self.last_meas = result;
+        Ok(result)
     }
 
     pub fn calibrate_all(&mut self, pt0: CalPtEc, pt1: Option<CalPtEc>) {
@@ -325,7 +349,7 @@ where
 
 /// Convert sensor voltage to ORP voltage
 /// We model the relationship between sensor output and ec linearly.
-fn ec_from_voltage(reading: f32, cal_0: &CalPtEc, cal_1: &Option<CalPtEc>) -> f32 {
+fn ec_from_voltage(reading: f32, cal_0: &CalPtEc, cal_1: &Option<CalPtEc>, T: f32) -> f32 {
     // a is the slope, ec / reading.
     let (reading1, ec1) = match cal_1 {
         Some(c1) => (c1.reading, c1.ec),
@@ -334,6 +358,16 @@ fn ec_from_voltage(reading: f32, cal_0: &CalPtEc, cal_1: &Option<CalPtEc>) -> f3
 
     let a = (ec1 - cal_0.ec) / (reading1 - cal_0.reading);
     let b = ec1 - a * reading1;
-    // (a + T_comp) * V + b  // todo: Temp cmop
-    a * reading + b
+
+    let Y_sol = a * reading + b;
+
+    // Temperature compensation. Reference Analog Devices CN0411, equation 10.
+    // We're picking cal point 1 as a temperature reference arbitrarily.
+
+    // The electrical conductivity (EC) of an aqueous solution increases with temperature
+    // significantly: about 2 per degree Celsius. (https://www.aqion.de/site/112)
+
+    // let a = 2.14;  // Temperature coefficient. For KCl. Use 2.14 for NaCl.
+    // Y_sol / (1. + a * (T - cal_0.T))
+    Y_sol
 }
