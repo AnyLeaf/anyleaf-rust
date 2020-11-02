@@ -28,11 +28,18 @@ use crate::CalPtEc;
 // between the two.
 // todo: finer resolution
 // 94Hz for uS, and 2.4khz for mS range,
-const PWM_THRESH_HIGH: f32 = 900.;
+const PWM_THRESH_HIGH: f32 = 1_200.;
 const PWM_THRESH_LOW: f32 = 400.;
 // const PSC_LOW_FREQ: u16 = 532;  // 94 Hz. mS
-// const PSC_MED_FREQ: u16 = 200;  // ? Hz. mS
+// const PSC_MED_FREQ: u16 = 200;  // 617 Hz. mS
 // const PSC_HIGH_FREQ: u16 = 20;  // 2.4kHz. uS.
+
+// `V_DEF` is the desired applied voltage across the conductivity electrodes.
+// Loose requirement from AD engineers: "100mV is good enough", and don't
+// overvolt the probe.
+const V_DEF: f32 = 0.2;
+// const F_LOW: u16 = 94; // uS range
+// const F_HIGH: u16 = 2_400; // mS range
 
 #[repr(u16)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -43,13 +50,6 @@ enum PwmFreq {
     Med = 80,  // ? Hz. mid
     High = 20, // 2.4kHz. uS
 }
-
-// `V_DEF` is the desired applied voltage across the conductivity electrodes.
-// Loose requirement from AD engineers: "100mV is good enough", and don't
-// overvolt the probe.
-const V_DEF: f32 = 0.2;
-// const F_LOW: u16 = 94; // uS range
-// const F_HIGH: u16 = 2_400; // mS range
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum EcGain {
@@ -109,8 +109,8 @@ impl EcGain {
     /// todo: Re-evaluate cal values on the final board for gains 6/7.
     fn resistance(&self) -> u32 {
         match self {
-            Self::Seven => 31,  // Off 11 from ideal.
-            Self::Six => 209, // Calibration value is 9 off from ideal.
+            Self::Seven => 31, // Off 11 from ideal.
+            Self::Six => 209,  // Calibration value is 9 off from ideal.
             Self::Five => 2_000,
             Self::Four => 20_000,
             Self::Three => 200_000,
@@ -184,8 +184,6 @@ pub fn start_pwm(timer: &mut Timer<TIM2>) {
     timer.enable(Channel::Three);
 }
 
-// pub fn stop_pwm<PWM0, PWM1, PWM2>(p0: &mut PWM0, p1: &mut PWM1, p2: &mut PWM2)
-// pub fn stop_pwm(p0: &mut PWM0, p1: &mut PWM1, p2: &mut PWM2)
 /// Stop all 3 PWM channels
 pub fn stop_pwm(timer: &mut Timer<TIM2>) {
     timer.disable(Channel::One);
@@ -230,7 +228,6 @@ where
         }
     }
 
-
     /// Set gain and excitation voltage, as an auto-ranging procedure.
     /// Return the values, for use in the computation. See CN-0411: Table 12.
     fn set_range<E, I2C, D: DelayMs<u16>>(
@@ -245,38 +242,11 @@ where
         let mut gain = EcGain::One;
         self.gain_switch.set(gain);
 
-        // temp fail r check:
-        // One: reading 2mh. should be 20m.
-        // Three: reading 20k. Should be 200k
-        // Five: Reading 200. Should read 2k.
-        // Seven: Reading 0. Should read 20.
-
-        // S7 is correct: 011
-        // S5 is correct: 001
-        // S3 is correct: 010
-
-        // s2 tries to set 100. Result is like 000. So perhaps A0 is bad.
-        // s4 tries to set 110. Result is like 010
-        // S6 tries to set 101. Result is like 001.
-        // Conclusion: A0 is bbeing pulled to ground, or is floating.
-
-        // Gain Six Calibration: Reading 209. Ideal is 200.
-
-        // Latest:
-        // One: 20M
-        // Two: Wrong @ 20M
-        // Three: 200k
-        // Four: Wrong @ 200k
-        // Five: 2k.
-        // Six: Assume wrong
-        // Seven: Wrigbh @ 31.2
-
-
         // Set DAC to Output V_EXC = 400mV, to start.
         let mut v_exc = 0.4;
         self.dac.set_voltage(v_exc);
 
-        delay.delay_ms(100);
+        delay.delay_ms(30);
         // Read ADC Input V+ and V-
         let (mut v_p, mut v_m) = self.read_voltage(adc)?;
 
@@ -289,7 +259,7 @@ where
 
             // todo: DRY!
             // Read ADC Input V+ and V-
-            delay.delay_ms(100);
+            delay.delay_ms(30);
             let readings = self.read_voltage(adc)?;
             v_p = readings.0;
             v_m = readings.1;
@@ -355,13 +325,11 @@ where
         rprintln!("V: {:?}, Gain: {:?}", &v_exc, &gain);
 
         // the lowest freq we use is 94hz. Period = ~11ms.
-        delay.delay_ms(100); // todo: What should this be?
+        delay.delay_ms(30); // todo: What should this be?
         let (v_p, v_m) = self.read_voltage(adc)?;
 
-        // rprintln!("+: {:?}, -: {:?}", &v_p, v_m);
-
-        // stop_pwm(timer);
-        // self.dac.disable(apb1);
+        stop_pwm(timer);
+        self.dac.disable(apb1);
 
         // See also
         // https://wiki.analog.com/resources/eval/user-guides/eval-adicup360/reference_designs/demo_cn0411
@@ -399,7 +367,6 @@ where
         // 100us: 4.35M
         // 1413us:
 
-
         // `pp` means peak-to-peak
         let V_cond_pp = 0.1 * v_p + 0.1 * v_m; // CN0411, Eq 6
         let I_cond_pp = (2. * v_exc - V_cond_pp) / (gain.resistance() as f32); // CN0411, Eq 7
@@ -427,28 +394,31 @@ where
 
         let result = ec_from_reading(Y_sol, &self.cal_1, &self.cal_2, T);
 
-        // if result > PWM_THRESH_HIGH && self.last_meas != PwmFreq::High {
-        //     unsafe {
-        //         (*TIM2::ptr())
-        //             .psc
-        //             .write(|w| w.psc().bits(PwmFreq::High as u16));
-        //     }
-        //     self.last_meas = PwmFreq::High;
-        // } else if result > PWM_THRESH_LOW && self.last_meas != PwmFreq::Med {
-        //     unsafe {
-        //         (*TIM2::ptr())
-        //             .psc
-        //             .write(|w| w.psc().bits(PwmFreq::Med as u16));
-        //     }
-        //     self.last_meas = PwmFreq::Med;
-        // } else if result < PWM_THRESH_LOW && self.last_meas != PwmFreq::Low {
-        //     unsafe {
-        //         (*TIM2::ptr())
-        //             .psc
-        //             .write(|w| w.psc().bits(PwmFreq::Low as u16));
-        //     }
-        //     self.last_meas = PwmFreq::Low;
-        // }
+        if result > PWM_THRESH_HIGH && self.last_meas != PwmFreq::High {
+            unsafe {
+                (*TIM2::ptr())
+                    .psc
+                    .write(|w| w.psc().bits(PwmFreq::High as u16));
+            }
+            self.last_meas = PwmFreq::High;
+        } else if result > PWM_THRESH_LOW
+            && result < PWM_THRESH_HIGH
+            && self.last_meas != PwmFreq::Med
+        {
+            unsafe {
+                (*TIM2::ptr())
+                    .psc
+                    .write(|w| w.psc().bits(PwmFreq::Med as u16));
+            }
+            self.last_meas = PwmFreq::Med;
+        } else if result < PWM_THRESH_LOW && self.last_meas != PwmFreq::Low {
+            unsafe {
+                (*TIM2::ptr())
+                    .psc
+                    .write(|w| w.psc().bits(PwmFreq::Low as u16));
+            }
+            self.last_meas = PwmFreq::Low;
+        }
 
         Ok(result)
     }
@@ -473,15 +443,22 @@ fn ec_from_reading(reading: f32, cal_0: &CalPtEc, cal_1: &Option<CalPtEc>, T: f3
         // Model as a quadratic Lagrangian polynomia
         // 3 pt polynomial calibration, using a 3rd point at 0, 0.
         Some(c1) => {
-            let result = crate::lg(
-                (0., 0.),
-                (cal_0.reading, cal_0.ec),
-                (c1.reading, c1.ec),
-                reading,
-            );
+            // a is the slope, pH / v.
+            let a = (c1.ec - cal_0.ec) / (c1.reading - cal_0.reading);
+            let b = c1.ec - a * c1.reading;
+            let result = (a + T_comp) * reading + b;
+            result
+
+            // todo: Polynomial isn't given good results.
+            // let result = crate::lg(
+            //     (0., 0.),
+            //     (cal_0.reading, cal_0.ec),
+            //     (c1.reading, c1.ec),
+            //     reading,
+            // );
             // todo: Eval this and in teh pH fn!
-            (result + T_comp) * reading
-        },
+            // (result + T_comp) * reading
+        }
         // Model as a line, using (0., 0.) as the other pt.
         None => {
             let a = cal_0.ec / cal_0.reading;
@@ -489,6 +466,9 @@ fn ec_from_reading(reading: f32, cal_0: &CalPtEc, cal_1: &Option<CalPtEc>, T: f3
             (a + T_comp) * reading + b
         }
     };
+
+    // todo: Model as 2 lines instead? Polynomial is not giving good results
+    // todo outside the range.
 
     // Temperature compensation. Reference Analog Devices CN0411, equation 10.
     // We're picking cal point 1 as a temperature reference arbitrarily.
