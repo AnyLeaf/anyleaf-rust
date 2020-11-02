@@ -850,17 +850,19 @@ fn lg(pt0: (f32, f32), pt1: (f32, f32), pt2: (f32, f32), X: f32) -> f32 {
 /// We model the relationship between sensor voltage and pH linearly
 /// using 2-pt calibration, or quadratically using 3-pt. Temperature
 /// compensated. Input `T` is in Celsius.
-fn ph_from_voltage(V: f32, temp: f32, cal_0: &CalPt, cal_1: &CalPt, cal_2: &Option<CalPt>) -> f32 {
+fn ph_from_voltage(V: f32, T: f32, cal_0: &CalPt, cal_1: &CalPt, cal_2: &Option<CalPt>) -> f32 {
     // We infer a -.05694 pH/(V*T) sensitivity linear relationship
     // (higher temp means higher pH/V ratio)
-    let T_diff = temp - cal_0.T;
+    let T_diff = T - cal_0.T;
     let T_comp = PH_TEMP_C * T_diff; // pH / V
 
+    // todo: Why does T_comp affect things differnetly??
     match cal_2 {
         // Model as a quadratic Lagrangian polynomial, to compensate for slight nonlinearity.
         Some(c2) => {
             let result = lg((cal_0.V, cal_0.pH), (cal_1.V, cal_1.pH), (c2.V, c2.pH), V);
-            result + T_comp * V
+            (result + T_comp) * V  // todo: is this right? You were missing the parents for a while.
+            // todo: Try the above line with and without parens!
         }
         // Model as a line
         None => {
@@ -888,20 +890,3 @@ fn orp_from_voltage(V: f32, cal: &CalPtOrp) -> f32 {
 pub fn temp_from_voltage(V: f32) -> f32 {
     100. * V - 60.
 }
-
-///// Convert PT100-circuit voltage to Temperature, in °C
-///// We model the relationship between sensor voltage and temperature linearly
-///// between 2 calibration points.
-//fn temp_pt100_from_voltage(V: f32, cal_0: CalPtT, cal_1: CalPtT) -> f32 {
-//    // a is the slope, T / V.
-//    let a = (cal_1.T - cal_0.T) / (cal_1.V - cal_0.V);
-//    let b = cal_1.T - a * cal_1.V;
-//    a * V + b
-//
-//    // todo: Evaluate if a LUT is what you want. Quadratic polynomial, 3-deg poly?
-//    // todo: Lagrange poly?
-//
-//    // https://www.digikey.com/en/articles/rtds-ptcs-and-ntcs-how-to
-//    // -effectively-decipher-this-alphabet-soup-of-temperature-sensors
-//
-//}
