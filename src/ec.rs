@@ -26,10 +26,21 @@ use crate::CalPtEc;
 // Frequencies for the PWM channels.
 // todo: finer resolution
 // 94Hz for uS, and 2.4khz for mS range,
-const PWM_THRESH: f32 = 1_100.;
-const PSC_LOW_FREQ: u16 = 532;  // 94 Hz. mS
-// const PSC_LOW_FREQ: u16 = 200;  // 94 Hz. mS  // todo: 94 is causign trouble :(
-const PSC_HIGH_FREQ: u16 = 20;  // 2.4kHz. uS.
+const PWM_THRESH_HIGH: f32 = 900.;
+const PWM_THRESH_LOW: f32 = 400.;
+// const PSC_LOW_FREQ: u16 = 532;  // 94 Hz. mS
+// const PSC_MED_FREQ: u16 = 200;  // ? Hz. mS
+// const PSC_HIGH_FREQ: u16 = 20;  // 2.4kHz. uS.
+
+#[repr(u16)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+/// 94Hz for uS, and 2.4khz for mS range. The values here corresopnd to STM32
+/// timer PSC registers, with ARR set at 240.
+enum PwmFreq {
+    Low = 532, // 94 Hz. mS
+    Med = 80,  // ? Hz. mid
+    High = 20, // 2.4kHz. uS
+}
 
 // `V_DEF` is the desired applied voltage across the conductivity electrodes.
 // Loose requirement from AD engineers: "100mV is good enough", and don't
@@ -179,7 +190,7 @@ where
     cal_2: Option<CalPtEc>,
     // Temp-compensated, in uS/cm2; post-processing. Used for determining
     // how to set the PWM freq for the next cycle.
-    last_meas: f32,
+    last_meas: PwmFreq,
 }
 
 impl<P0, P1, P2> EcSensor<P0, P1, P2>
@@ -197,13 +208,17 @@ where
             K_cell,
             cal_1: CalPtEc::new(100., 1000., 23.),
             cal_2: Some(CalPtEc::new(1_413., 1_413., 23.)),
-            last_meas: 100.,
+            last_meas: PwmFreq::High,
         }
     }
 
     /// Set gain and excitation voltage, as an auto-ranging procedure.
     /// Return the values, for use in the computation. See CN-0411: Table 12.
-    fn set_range<E, I2C, D: DelayMs<u16>>(&mut self, adc: &mut crate::Adc<I2C>, delay: &mut D) -> Result<(f32, EcGain), E>
+    fn set_range<E, I2C, D: DelayMs<u16>>(
+        &mut self,
+        adc: &mut crate::Adc<I2C>,
+        delay: &mut D,
+    ) -> Result<(f32, EcGain), E>
     where
         I2C: i2c::WriteRead<Error = E> + i2c::Write<Error = E> + i2c::Read<Error = E>,
     {
@@ -226,10 +241,10 @@ where
         // Read ADC Input V+ and V-
         let (mut v_p, mut v_m) = self.read_voltage(adc)?;
 
-
-        // while v_p + v_m <= (0.3 * 2. * v_exc as f32) && gain != EcGain::Seven {
         // Note that higher conductivities result in higher gain. Does this make sense?
-        while v_p + v_m <= (0.3 * 2. * v_exc as f32) && gain != EcGain::Six { // todo temp
+        // todo: By limited the gain to Six, we're leaving off the option of Gain 7; whenever
+        // it selects this, v_exc, and the readings shoot way up. Disable it until resolved.
+        while v_p + v_m <= (0.3 * 2. * v_exc as f32) && gain != EcGain::Six {
             gain = gain.raise();
             self.gain_switch.set(gain);
 
@@ -301,7 +316,7 @@ where
         rprintln!("V: {:?}, Gain: {:?}", &v_exc, &gain);
 
         // the lowest freq we use is 94hz. Period = ~11ms.
-        delay.delay_ms(30);  // todo: What should this be?
+        delay.delay_ms(30); // todo: What should this be?
         let (v_p, v_m) = self.read_voltage(adc)?;
 
         // rprintln!("+: {:?}, -: {:?}", &v_p, v_m);
@@ -338,23 +353,45 @@ where
     {
         let Y_sol = self.read_direct(adc, delay, apb1, timer)?;
 
-        let result = ec_from_voltage(Y_sol, &self.cal_1, &self.cal_2, T);
+        let result = ec_from_reading(Y_sol, &self.cal_1, &self.cal_2, T);
 
-        // Change the PWM frequency for the next cycle, if required.
-        if result > PWM_THRESH && self.last_meas < PWM_THRESH {
-            // set 2.4khz.
-            // Note that both settings use the same ARR value; just change PSC.
+        // // Change the PWM frequency for the next cycle, if required.
+        // if result > PWM_THRESH && self.last_meas < PWM_THRESH {
+        //     // set 2.4khz.
+        //     // Note that both settings use the same ARR value; just change PSC.
+        //     unsafe {
+        //         (*TIM2::ptr()).psc.write(|w| w.psc().bits(PSC_HIGH_FREQ));
+        //     }
+        // } else if result < PWM_THRESH && self.last_meas > PWM_THRESH {
+        //     // set 94Hz
+        //     unsafe {
+        //         (*TIM2::ptr()).psc.write(|w| w.psc().bits(PSC_LOW_FREQ));
+        //     }
+        // }
+
+        if result > PWM_THRESH_HIGH && self.last_meas != PwmFreq::High {
             unsafe {
-                (*TIM2::ptr()).psc.write(|w| w.psc().bits(PSC_HIGH_FREQ));
+                (*TIM2::ptr())
+                    .psc
+                    .write(|w| w.psc().bits(PwmFreq::High as u16));
             }
-        } else if result < PWM_THRESH && self.last_meas > PWM_THRESH {
-            // set 94Hz
+            self.last_meas = PwmFreq::High;
+        } else if result > PWM_THRESH_LOW && self.last_meas != PwmFreq::Med {
             unsafe {
-                (*TIM2::ptr()).psc.write(|w| w.psc().bits(PSC_LOW_FREQ));
+                (*TIM2::ptr())
+                    .psc
+                    .write(|w| w.psc().bits(PwmFreq::Med as u16));
             }
+            self.last_meas = PwmFreq::Med;
+        } else if result < PWM_THRESH_LOW && self.last_meas != PwmFreq::Low {
+            unsafe {
+                (*TIM2::ptr())
+                    .psc
+                    .write(|w| w.psc().bits(PwmFreq::Low as u16));
+            }
+            self.last_meas = PwmFreq::Low;
         }
 
-        self.last_meas = result;
         Ok(result)
     }
 
@@ -366,19 +403,27 @@ where
 
 /// Convert sensor voltage to ORP voltage
 /// We model the relationship between sensor output and ec linearly.
-fn ec_from_voltage(reading: f32, cal_0: &CalPtEc, cal_1: &Option<CalPtEc>, T: f32) -> f32 {
+fn ec_from_reading(reading: f32, cal_0: &CalPtEc, cal_1: &Option<CalPtEc>, T: f32) -> f32 {
     // a is the slope, ec / reading.
-    let (reading1, ec1) = match cal_1 {
-        Some(c1) => (c1.reading, c1.ec),
-        None => (0., 0.),
-    };
-
     rprintln!("RAW: {:?}", &reading);
 
-    let a = (ec1 - cal_0.ec) / (reading1 - cal_0.reading);
-    let b = ec1 - a * reading1;
-
-    let Y_sol = a * reading + b;
+    // todo: Dry with `ph_from_voltage`
+    let Y_sol = match cal_1 {
+        // Model as a quadratic Lagrangian polynomia
+        // 3 pt polynomial calibration, using a 3rd point at 0, 0.
+        Some(c2) => crate::lg(
+            (cal_0.reading, cal_0.ec),
+            (c2.reading, c2.ec),
+            (0., 0.),
+            reading,
+        ),
+        // Model as a line, using (0., 0.) as the other pt.
+        None => {
+            let a = cal_0.ec / cal_0.reading;
+            let b = cal_0.ec - a * cal_0.reading;
+            a * reading + b
+        }
+    };
 
     // Temperature compensation. Reference Analog Devices CN0411, equation 10.
     // We're picking cal point 1 as a temperature reference arbitrarily.

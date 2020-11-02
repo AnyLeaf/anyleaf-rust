@@ -642,7 +642,7 @@ where
         // Don't invalidate the temperature-compensated readings just because
         // we have a problem reading temperature. The user will have to note
         // that they may have errors due to this, but still take the readings.
-        let T2 = T.unwrap_or(20.);
+        let T2 = T.unwrap_or(25.);
 
         // todo block! Readings are crashing the program instead of failing
         // todo gracefully!
