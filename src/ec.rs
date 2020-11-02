@@ -19,13 +19,22 @@ use stm32f3xx_hal::{
     timer::{Channel, Timer},
 };
 
+use rtt_target::rprintln;
+
 use crate::CalPtEc;
 
 // Frequencies for the PWM channels.
-// todo: finer resolution,
-const PWM_THRESH: f32 = 900.;
-const PSC_LOW: u16 = 532;
-const PSC_HIGH: u16 = 20;
+// todo: finer resolution
+// 94Hz for uS, and 2.4khz for mS range,
+const PWM_THRESH: f32 = 1_100.;
+const PSC_LOW_FREQ: u16 = 532;  // 94 Hz. mS
+// const PSC_LOW_FREQ: u16 = 200;  // 94 Hz. mS  // todo: 94 is causign trouble :(
+const PSC_HIGH_FREQ: u16 = 20;  // 2.4kHz. uS.
+
+// `V_DEF` is the desired applied voltage across the conductivity electrodes.
+// Loose requirement from AD engineers: "100mV is good enough", and don't
+// overvolt the probe.
+const V_DEF: f32 = 0.3;
 // const F_LOW: u16 = 94; // uS range
 // const F_HIGH: u16 = 2_400; // mS range
 
@@ -194,7 +203,7 @@ where
 
     /// Set gain and excitation voltage, as an auto-ranging procedure.
     /// Return the values, for use in the computation. See CN-0411: Table 12.
-    fn set_range<E, I2C>(&mut self, adc: &mut crate::Adc<I2C>) -> Result<(f32, EcGain), E>
+    fn set_range<E, I2C, D: DelayMs<u16>>(&mut self, adc: &mut crate::Adc<I2C>, delay: &mut D) -> Result<(f32, EcGain), E>
     where
         I2C: i2c::WriteRead<Error = E> + i2c::Write<Error = E> + i2c::Read<Error = E>,
     {
@@ -204,33 +213,36 @@ where
         // return Ok((1., EcGain::Six));
 
         // Set multiplexer to highest gain resistance
+        // let mut gain = EcGain::Four;
         let mut gain = EcGain::One;
         self.gain_switch.set(gain);
 
         // Set DAC to Output V_EXC = 400mV
         let mut v_exc = 0.4;
+        // let mut v_exc = 0.8;
         self.dac.set_voltage(v_exc);
 
+        delay.delay_ms(30);
         // Read ADC Input V+ and V-
         let (mut v_p, mut v_m) = self.read_voltage(adc)?;
 
-        // `v_def` is the desired applied voltage across the conductivity electrodes.
-        // Loose requirement from AD engineers: "100mV is good enough", and don't
-        // overvolt the probe.
-        let v_def = 0.1;
 
-        while v_p + v_m <= (0.3 * 2. * v_exc as f32) && gain != EcGain::Seven {
+        // while v_p + v_m <= (0.3 * 2. * v_exc as f32) && gain != EcGain::Seven {
+        // Note that higher conductivities result in higher gain. Does this make sense?
+        while v_p + v_m <= (0.3 * 2. * v_exc as f32) && gain != EcGain::Six { // todo temp
             gain = gain.raise();
             self.gain_switch.set(gain);
 
             // todo: DRY!
             // Read ADC Input V+ and V-
+            delay.delay_ms(30);
             let readings = self.read_voltage(adc)?;
             v_p = readings.0;
             v_m = readings.1;
+            rprintln!("Vp: {:?}, Vm: {:?}", &v_p, &v_m);
         }
 
-        v_exc = v_def * (v_exc as f32) / (v_p + v_m);
+        v_exc = V_DEF * (v_exc as f32) / (v_p + v_m);
         self.dac.set_voltage(v_exc);
 
         Ok((v_exc, gain))
@@ -282,12 +294,17 @@ where
         // [dis]enabling the dac each reading should improve battery usage.
         self.dac.enable(apb1);
         start_pwm(timer);
-        let (v_exc, gain) = self.set_range(adc)?;
 
-        // todo: If you have trouble once testing EC again, look here.
-        // delay.delay_ms(50); // This delay may not be required, but seems to make sense.
+        // Delay to charge the sample and hold before reading.
+        let (v_exc, gain) = self.set_range(adc, delay)?;
 
+        rprintln!("V: {:?}, Gain: {:?}", &v_exc, &gain);
+
+        // the lowest freq we use is 94hz. Period = ~11ms.
+        delay.delay_ms(30);  // todo: What should this be?
         let (v_p, v_m) = self.read_voltage(adc)?;
+
+        // rprintln!("+: {:?}, -: {:?}", &v_p, v_m);
 
         // stop_pwm(timer);
         // self.dac.disable(apb1);
@@ -328,12 +345,12 @@ where
             // set 2.4khz.
             // Note that both settings use the same ARR value; just change PSC.
             unsafe {
-                (*TIM2::ptr()).psc.write(|w| w.psc().bits(PSC_HIGH));
+                (*TIM2::ptr()).psc.write(|w| w.psc().bits(PSC_HIGH_FREQ));
             }
         } else if result < PWM_THRESH && self.last_meas > PWM_THRESH {
             // set 94Hz
             unsafe {
-                (*TIM2::ptr()).psc.write(|w| w.psc().bits(PSC_LOW));
+                (*TIM2::ptr()).psc.write(|w| w.psc().bits(PSC_LOW_FREQ));
             }
         }
 
@@ -355,6 +372,8 @@ fn ec_from_voltage(reading: f32, cal_0: &CalPtEc, cal_1: &Option<CalPtEc>, T: f3
         Some(c1) => (c1.reading, c1.ec),
         None => (0., 0.),
     };
+
+    rprintln!("RAW: {:?}", &reading);
 
     let a = (ec1 - cal_0.ec) / (reading1 - cal_0.reading);
     let b = ec1 - a * reading1;
