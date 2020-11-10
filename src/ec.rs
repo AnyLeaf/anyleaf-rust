@@ -42,6 +42,8 @@ const V_DEF: f32 = 0.15;
 // A higher value of `N_SAMPLES` is more accurate, but takes longer.
 const N_SAMPLES: u8 = 10;
 
+const AMP_GAIN: f32 = 10.; // Multiplication factor of the instrumentation amp.
+
 #[repr(u16)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 /// 94Hz for uS, and 2.4khz for mS range. The values here corresopnd to STM32
@@ -228,23 +230,23 @@ where
         I2C: i2c::WriteRead<Error = E> + i2c::Write<Error = E> + i2c::Read<Error = E>,
     {
         // Set multiplexer to highest gain resistance
-        let mut gain = EcGain::One;
+        let mut gain = EcGain::One; // todo temp
         self.gain_switch.set(gain);
 
         // Set DAC to Output V_EXC = 400mV, to start.
         let mut v_exc = 0.4;
         self.dac.set_voltage(v_exc);
 
-        // return Ok((v_exc, gain)); // todo temp
-
         delay.delay_ms(50);
         // Read ADC Input V+ and V-
         let (mut v_p, mut v_m) = self.read_voltage(adc)?;
+        rprintln!("Vp: {:?}, Vm: {:?}", &v_p, &v_m);
 
         // Note that higher conductivities result in higher gain, due to the nature of
         // our 2-part voltage divider. Resistance one is from the gain resistor; resistance
         // 2 is from the ec probe.
-        while v_p + v_m <= (0.3 * 2. * v_exc as f32) && gain != EcGain::Seven {
+        // todo: Make this 0.3 a constant and find out what it means.
+        while (v_p + v_m) / 2. <= (3. * v_exc as f32) && gain != EcGain::Seven {
             gain = gain.raise();
             self.gain_switch.set(gain);
 
@@ -254,10 +256,9 @@ where
             let readings = self.read_voltage(adc)?;
             v_p = readings.0;
             v_m = readings.1;
-            // rprintln!("Vp: {:?}, Vm: {:?}", &v_p, &v_m);
         }
 
-        v_exc = V_DEF * (v_exc as f32) / ((v_p + v_m) / 2.);
+        v_exc = V_DEF * (v_exc as f32) / ((v_p + v_m) / 0.05);
         self.dac.set_voltage(v_exc);
 
         Ok((v_exc, gain))
@@ -266,6 +267,9 @@ where
     /// We use the PWM timer's channels 2 and 3 to trigger readings at the appropriate times in
     /// the cycle. They're configured in `util::setup_pwm`, and trigger in the middle of
     /// each of the 2 polarities.
+    ///
+    /// We divide the read voltage by the AMP; we're looking for a pre-amp voltage,
+    /// but reading post-amp.
     pub(crate) fn read_voltage<I2C, E>(
         &mut self,
         adc: &mut crate::Adc<I2C>,
@@ -284,16 +288,16 @@ where
         //     }
         // }
 
-        // todo: PUt the waits back!!
         unsafe { (*pac::TIM2::ptr()).sr.modify(|_, w| w.cc2if().clear_bit()) }
         // while unsafe { !(*pac::TIM2::ptr()).sr.read().cc2if().bit() } {}
-        let v_m = crate::voltage_from_adc(block!(adc.read(&mut SingleA2)).unwrap_or(0));
-
-        unsafe { (*pac::TIM2::ptr()).sr.modify(|_, w| w.cc3if().clear_bit()) }
-        // while unsafe { !(*pac::TIM2::ptr()).sr.read().cc3if().bit() } {}
         let v_p = crate::voltage_from_adc(block!(adc.read(&mut SingleA2)).unwrap_or(0));
 
-        Ok((v_p, v_m))
+        // todo: PUt the waits back!!
+        unsafe { (*pac::TIM2::ptr()).sr.modify(|_, w| w.cc3if().clear_bit()) }
+        // while unsafe { !(*pac::TIM2::ptr()).sr.read().cc3if().bit() } {}
+        let v_m = crate::voltage_from_adc(block!(adc.read(&mut SingleA2)).unwrap_or(0));
+
+        Ok((v_p / AMP_GAIN, v_m / AMP_GAIN))
     }
 
     /// Misleading name compared to other sensors. This is our uncalibrated reading, used
@@ -314,8 +318,8 @@ where
         delay.delay_ms(30); // Delay to let current flow from the DAC. // todo: Customize this.
 
         // Delay to charge the sample and hold before reading.
-        let (v_exc, gain) = self.set_range(adc, delay)?;
-        rprintln!("Vexc: {:?}, Gain: {:?}", &v_exc, &gain);
+        let (V_exc, gain) = self.set_range(adc, delay)?;
+        rprintln!("Vexc: {:?}, Gain: {:?}", &V_exc, &gain);
 
         // todo: Put back. We took thsi out to test non-sample-hold/pwm approach
         let mut v_p_cum = 0.;
@@ -324,7 +328,7 @@ where
         for _ in 0..N_SAMPLES {
             // the lowest freq we use is 94hz. Period = ~11ms.
             let (v_p, v_m) = self.read_voltage(adc)?;
-            rprintln!("Vp: {:?}, vm: {:?}", &v_p, &v_m);
+            // rprintln!("Vp: {:?}, vm: {:?}", &v_p, &v_m);
             delay.delay_ms(10);
             v_p_cum += v_p;
             v_m_cum += v_m;
@@ -335,7 +339,7 @@ where
         let v_p = v_p_cum / N_SAMPLES as f32;
         let v_m = v_m_cum / N_SAMPLES as f32;
 
-        // rprintln!("Vp: {:?}, vm: {:?}", &v_p, &v_m);
+        rprintln!("Vp: {:?}, vm: {:?}", &v_p, &v_m);
 
         // See also
         // https://wiki.analog.com/resources/eval/user-guides/eval-adicup360/reference_designs/demo_cn0411
@@ -343,20 +347,19 @@ where
 
         // `pp` means peak-to-peak
         // `V_probe` is the voltage drop across the probe
-        // Multiply by 0.1 to compensate for the 10x amplification in the instrumentation amp.
-        // Divide by 2 since we're averaging 2 measurements. Hence .05.
-        let V_probe = v_exc - 0.5 * (v_p + v_m);
+        // Divide by 2 since we're averaging 2 measurements.
+        let V_probe = V_exc - (v_p + v_m) / 2.;
 
-        // `I_probe` is the current flowing through the probe
-        let I_probe = V_probe / (gain.resistance() as f32);
+        // `I_probe` is the current flowing through the gain circuitry, then probe.
+        let I = V_exc / (gain.resistance() as f32);
 
         // K is in 1/cm. eg: K=1.0 could mean 2 1cm square plates 1cm apart.
-        let Y_sol = self.K_cell * I_probe / V_probe;
+        let Y_sol = self.K_cell * I / V_probe;
 
         rprintln!(
             "V: {:?} I: {:?}, R: {:?}",
             V_probe,
-            I_probe,
+            I,
             gain.resistance()
         );
 
