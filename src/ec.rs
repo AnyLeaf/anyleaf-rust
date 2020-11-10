@@ -8,7 +8,7 @@ use embedded_hal::{
 
 use ads1x1x::{
     self,
-    channel::{SingleA2, SingleA3},
+    channel::{DifferentialA0A1, SingleA2, SingleA3},
 };
 
 // todo: Once you make `SingleChannelDac` more abstract, remove this.
@@ -37,9 +37,10 @@ const PWM_THRESH_LOW: f32 = 400.;
 // `V_DEF` is the desired applied voltage across the conductivity electrodes.
 // Loose requirement from AD engineers: "100mV is good enough", and don't
 // overvolt the probe.
-const V_DEF: f32 = 0.2;
-// const F_LOW: u16 = 94; // uS range
-// const F_HIGH: u16 = 2_400; // mS range
+const V_DEF: f32 = 0.15;
+// Take the average of several readings, to produce smoother results.
+// A higher value of `N_SAMPLES` is more accurate, but takes longer.
+const N_SAMPLES: u8 = 10;
 
 #[repr(u16)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -87,18 +88,6 @@ impl EcGain {
         //     Self::Six => Self::Seven,
         //     Self::Seven => panic!("Gain is already at maximum"),
         // }
-    }
-    /// Drop by one level.
-    fn _drop(&self) -> Self {
-        match self {
-            Self::One => panic!("Gain is already at minimum"),
-            Self::Two => Self::One,
-            Self::Three => Self::Two,
-            Self::Four => Self::Three,
-            Self::Five => Self::Four,
-            Self::Six => Self::Five,
-            Self::Seven => Self::Six,
-        }
     }
 
     /// Display the resistance associated with gain, in Ω.
@@ -178,14 +167,14 @@ impl<P0: OutputPin, P1: OutputPin, P2: OutputPin> ADG1608<P0, P1, P2> {
 }
 
 // pub fn start_pwm<PWM0, PWM1, PWM2, D>(p0: &mut PWM0, p1: &mut PWM1, p2: &mut PWM2, delay: &mut D)
-pub fn start_pwm(timer: &mut Timer<TIM2>) {
+pub fn _start_pwm(timer: &mut Timer<TIM2>) {
     timer.enable(Channel::One);
     timer.enable(Channel::Two);
     timer.enable(Channel::Three);
 }
 
 /// Stop all 3 PWM channels
-pub fn stop_pwm(timer: &mut Timer<TIM2>) {
+pub fn _stop_pwm(timer: &mut Timer<TIM2>) {
     timer.disable(Channel::One);
     timer.disable(Channel::Two);
     timer.disable(Channel::Three);
@@ -246,7 +235,9 @@ where
         let mut v_exc = 0.4;
         self.dac.set_voltage(v_exc);
 
-        delay.delay_ms(30);
+        // return Ok((v_exc, gain)); // todo temp
+
+        delay.delay_ms(50);
         // Read ADC Input V+ and V-
         let (mut v_p, mut v_m) = self.read_voltage(adc)?;
 
@@ -259,45 +250,48 @@ where
 
             // todo: DRY!
             // Read ADC Input V+ and V-
-            delay.delay_ms(30);
+            delay.delay_ms(50);
             let readings = self.read_voltage(adc)?;
             v_p = readings.0;
             v_m = readings.1;
-            rprintln!("Vp: {:?}, Vm: {:?}", &v_p, &v_m);
+            // rprintln!("Vp: {:?}, Vm: {:?}", &v_p, &v_m);
         }
 
-        v_exc = V_DEF * (v_exc as f32) / (v_p + v_m);
+        v_exc = V_DEF * (v_exc as f32) / ((v_p + v_m) / 2.);
         self.dac.set_voltage(v_exc);
 
         Ok((v_exc, gain))
     }
 
-    /// Read the two voltages associated with ec measurement from the ADC.
-    /// Assumes the measurement process has already been set up.
+    /// We use the PWM timer's channels 2 and 3 to trigger readings at the appropriate times in
+    /// the cycle. They're configured in `util::setup_pwm`, and trigger in the middle of
+    /// each of the 2 polarities.
     pub(crate) fn read_voltage<I2C, E>(
-        &self,
+        &mut self,
         adc: &mut crate::Adc<I2C>,
-        // ) -> Result<(f32, f32), ads1x1x::Error<E>>
     ) -> Result<(f32, f32), E>
     where
         I2C: i2c::WriteRead<Error = E> + i2c::Write<Error = E> + i2c::Read<Error = E>,
     {
-        // We use two additional pins on the same ADC as the ORP sensor.
-        let v_p = crate::voltage_from_adc(
-            block!(adc
-                // .as_mut()
-                // .expect("Measurement after I2C freed")
-                .read(&mut SingleA2))
-            .unwrap_or(45),
-        ); // todo temp unwrap due to Error type mismatches.
+        // loop {
+        //     unsafe { (*pac::TIM2::ptr()).sr.modify(|_, w| w.cc2if().clear_bit()) }
+        //     unsafe { (*pac::TIM2::ptr()).sr.modify(|_, w| w.cc3if().clear_bit()) }
+        //     while unsafe { !(*pac::TIM2::ptr()).sr.read().cc2if().bit() && !(*pac::TIM2::ptr()).sr.read().cc3if().bit() } {}
+        //     if unsafe { (*pac::TIM2::ptr()).sr.read().cc2if().bit() } {
+        //         rprintln!("2");
+        //     } else if unsafe { (*pac::TIM2::ptr()).sr.read().cc3if().bit() } {
+        //        rprintln!("3");
+        //     }
+        // }
 
-        let v_m = crate::voltage_from_adc(
-            block!(adc
-                // .as_mut()
-                // .expect("Measurement after I2C freed")
-                .read(&mut SingleA3))
-            .unwrap_or(45),
-        ); // todo temp unwrap
+        // todo: PUt the waits back!!
+        unsafe { (*pac::TIM2::ptr()).sr.modify(|_, w| w.cc2if().clear_bit()) }
+        // while unsafe { !(*pac::TIM2::ptr()).sr.read().cc2if().bit() } {}
+        let v_m = crate::voltage_from_adc(block!(adc.read(&mut SingleA2)).unwrap_or(0));
+
+        unsafe { (*pac::TIM2::ptr()).sr.modify(|_, w| w.cc3if().clear_bit()) }
+        // while unsafe { !(*pac::TIM2::ptr()).sr.read().cc3if().bit() } {}
+        let v_p = crate::voltage_from_adc(block!(adc.read(&mut SingleA2)).unwrap_or(0));
 
         Ok((v_p, v_m))
     }
@@ -309,7 +303,6 @@ where
         adc: &mut crate::Adc<I2C>,
         delay: &mut D,
         apb1: &mut APB1,
-        timer: &mut Timer<TIM2>,
     ) -> Result<f32, E>
     where
         D: DelayMs<u16>,
@@ -317,60 +310,55 @@ where
     {
         // [dis]enabling the dac each reading should improve battery usage.
         self.dac.enable(apb1);
-        start_pwm(timer);
+        // todo: Set ADC sample speed here?
+        delay.delay_ms(30); // Delay to let current flow from the DAC. // todo: Customize this.
 
         // Delay to charge the sample and hold before reading.
         let (v_exc, gain) = self.set_range(adc, delay)?;
+        rprintln!("Vexc: {:?}, Gain: {:?}", &v_exc, &gain);
 
-        rprintln!("V: {:?}, Gain: {:?}", &v_exc, &gain);
+        // todo: Put back. We took thsi out to test non-sample-hold/pwm approach
+        let mut v_p_cum = 0.;
+        let mut v_m_cum = 0.;
 
-        // the lowest freq we use is 94hz. Period = ~11ms.
-        delay.delay_ms(30); // todo: What should this be?
-        let (v_p, v_m) = self.read_voltage(adc)?;
+        for _ in 0..N_SAMPLES {
+            // the lowest freq we use is 94hz. Period = ~11ms.
+            let (v_p, v_m) = self.read_voltage(adc)?;
+            rprintln!("Vp: {:?}, vm: {:?}", &v_p, &v_m);
+            delay.delay_ms(10);
+            v_p_cum += v_p;
+            v_m_cum += v_m;
+        }
 
-        stop_pwm(timer);
-        self.dac.disable(apb1);
+        // self.dac.disable(apb1); // todo: temp; put back
+
+        let v_p = v_p_cum / N_SAMPLES as f32;
+        let v_m = v_m_cum / N_SAMPLES as f32;
+
+        // rprintln!("Vp: {:?}, vm: {:?}", &v_p, &v_m);
 
         // See also
         // https://wiki.analog.com/resources/eval/user-guides/eval-adicup360/reference_designs/demo_cn0411
         // https://github.com/analogdevicesinc/EVAL-ADICUP360/blob/master/projects/ADuCM360_demo_cn0411/src/CN0411.c
 
-        // todo: Experimenting with non-PWM, no sample+hold approach.
-        // // Set high.
-        // unsafe { (*pac::GPIOA::ptr()).bsrr.write(|w| w.bits(1 << 0)) };
-        // while unsafe { (*pac::GPIOA::ptr()).idr.read().idr0.is_low() } {}
-        // self.dac.enable(apb1);
-        // delay.delay_ms(5);
-        // let v_p = crate::voltage_from_adc(
-        //     block!(adc
-        //         // .as_mut()
-        //         // .expect("Measurement after I2C freed")
-        //         .read(&mut SingleA2))
-        //     .unwrap_or(45),
-        // ); // todo temp unwrap due to Error type mismatches.
-
-        // Set low
-        // unsafe { (*pac::GPIOA::ptr()).bsrr.write(|w| w.bits(1 << (16 + 0))) };
-        // while unsafe { (*pac::GPIOA::ptr()).idr.read().idr0.is_high() } {}
-        // delay.delay_ms(5);
-        // let v_m = crate::voltage_from_adc(
-        //     block!(adc
-        //         // .as_mut()
-        //         // .expect("Measurement after I2C freed")
-        //         .read(&mut SingleA2))
-        //     .unwrap_or(45),
-        // ); // todo temp unwrap due to Error type mismatches.
-        // self.dac.disable(apb1);
-
-        //Res k:
-        // Dry: inf
-        // 100us: 4.35M
-        // 1413us:
-
         // `pp` means peak-to-peak
-        let V_cond_pp = 0.1 * v_p + 0.1 * v_m; // CN0411, Eq 6
-        let I_cond_pp = (2. * v_exc - V_cond_pp) / (gain.resistance() as f32); // CN0411, Eq 7
-        let Y_sol = self.K_cell * I_cond_pp / V_cond_pp; // CN0411, Eq 8
+        // `V_probe` is the voltage drop across the probe
+        // Multiply by 0.1 to compensate for the 10x amplification in the instrumentation amp.
+        // Divide by 2 since we're averaging 2 measurements. Hence .05.
+        let V_probe = v_exc - 0.5 * (v_p + v_m);
+
+        // `I_probe` is the current flowing through the probe
+        let I_probe = V_probe / (gain.resistance() as f32);
+
+        // K is in 1/cm. eg: K=1.0 could mean 2 1cm square plates 1cm apart.
+        let Y_sol = self.K_cell * I_probe / V_probe;
+
+        rprintln!(
+            "V: {:?} I: {:?}, R: {:?}",
+            V_probe,
+            I_probe,
+            gain.resistance()
+        );
 
         Ok(Y_sol)
     }
@@ -390,7 +378,7 @@ where
         D: DelayMs<u16>,
         I2C: i2c::WriteRead<Error = E> + i2c::Write<Error = E> + i2c::Read<Error = E>,
     {
-        let Y_sol = self.read_direct(adc, delay, apb1, timer)?;
+        let Y_sol = self.read_direct(adc, delay, apb1)?;
 
         let result = ec_from_reading(Y_sol, &self.cal_1, &self.cal_2, T);
 
@@ -444,10 +432,31 @@ fn ec_from_reading(reading: f32, cal_0: &CalPtEc, cal_1: &Option<CalPtEc>, T: f3
         // 3 pt polynomial calibration, using a 3rd point at 0, 0.
         Some(c1) => {
             // a is the slope, pH / v.
-            let a = (c1.ec - cal_0.ec) / (c1.reading - cal_0.reading);
-            let b = c1.ec - a * c1.reading;
-            let result = (a + T_comp) * reading + b;
-            result
+
+            // todo: DRY.
+            // Model as two lines, connecting 0, the lower point, and the higher point.
+
+            let (l, h) = if cal_0.reading < c1.reading {
+                (cal_0, c1)
+            } else {
+                (c1, cal_0)
+            };
+
+            let l = if cal_0.reading < c1.reading {
+                cal_0.clone()
+            } else {
+                c1.clone()
+            };
+            if reading < l.reading {
+                let a = l.ec / l.reading;
+                let b = l.ec - a * l.reading;
+                a * reading + b
+            } else {
+                let a = (h.ec - cal_0.ec) / (c1.reading - cal_0.reading);
+                let b = c1.ec - a * c1.reading;
+                let result = (a + T_comp) * reading + b;
+                result
+            }
 
             // todo: Polynomial isn't given good results.
             // let result = crate::lg(

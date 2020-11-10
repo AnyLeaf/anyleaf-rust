@@ -607,11 +607,11 @@ where
         let mut ph = PhSensor::new(i2c, dt);
         // Use the default range of 2.048V for pH measurement. We use 6.144V for checking
         // battery life, and if plugged in.
-        ph.adc
-            .as_mut()
-            .expect("Measurement after I2C freed")
-            .set_full_scale_range(FullScaleRange::Within2_048V)
-            .ok();
+        // ph.adc
+        //     .as_mut()
+        //     .expect("Measurement after I2C freed")
+        //     .set_full_scale_range(FullScaleRange::Within2_048V)
+        //     .ok();
 
         let i2c = ph.free();
 
@@ -736,7 +736,7 @@ where
 
         match self
             .ec
-            .read_direct(&mut self.orp.adc.as_mut().unwrap(), delay, apb1, timer)
+            .read_direct(&mut self.orp.adc.as_mut().unwrap(), delay, apb1)
         {
             Ok(v) => Ok(v),
             Err(_) => Err(SensorError::Bus),
@@ -766,12 +766,12 @@ where
         self.ph_take();
 
         // Set a max range of 6.144V for testing the ~5v power connection.
-        self.ph
-            .adc
-            .as_mut()
-            .expect("Measurement after I2C freed")
-            .set_full_scale_range(FullScaleRange::Within6_144V)
-            .ok();
+        // self.ph
+        //     .adc
+        //     .as_mut()
+        //     .expect("Measurement after I2C freed")
+        //     .set_full_scale_range(FullScaleRange::Within6_144V)
+        //     .ok();
 
         let reading = block!(self
             .ph
@@ -781,12 +781,12 @@ where
             .read(&mut SingleA2));
 
         // Reset the range for pH measurement.
-        self.ph
-            .adc
-            .as_mut()
-            .expect("Measurement after I2C freed")
-            .set_full_scale_range(FullScaleRange::Within2_048V)
-            .ok();
+        // self.ph
+        //     .adc
+        //     .as_mut()
+        //     .expect("Measurement after I2C freed")
+        //     .set_full_scale_range(FullScaleRange::Within2_048V)
+        //     .ok();
 
         match reading {
             Ok(r) => {
@@ -861,8 +861,7 @@ fn ph_from_voltage(V: f32, T: f32, cal_0: &CalPt, cal_1: &CalPt, cal_2: &Option<
         // Model as a quadratic Lagrangian polynomial, to compensate for slight nonlinearity.
         Some(c2) => {
             let result = lg((cal_0.V, cal_0.pH), (cal_1.V, cal_1.pH), (c2.V, c2.pH), V);
-            (result + T_comp) * V // todo: is this right? You were missing the parents for a while.
-                                  // todo: Try the above line with and without parens!
+            (result + T_comp) * V
         }
         // Model as a line
         None => {
