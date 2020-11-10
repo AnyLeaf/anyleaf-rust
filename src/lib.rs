@@ -736,7 +736,7 @@ where
 
         match self
             .ec
-            .read_direct(&mut self.orp.adc.as_mut().unwrap(), delay, apb1)
+            .measure(&mut self.orp.adc.as_mut().unwrap(), delay, apb1)
         {
             Ok(v) => Ok(v),
             Err(_) => Err(SensorError::Bus),

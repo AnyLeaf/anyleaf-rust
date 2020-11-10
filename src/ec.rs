@@ -1,4 +1,8 @@
 //! Code that triggers parts of the ec circuit: Analog Devices CN-0411.
+//! References:
+//! https://www.analog.com/en/design-center/reference-designs/circuits-from-the-lab/cn0411.html
+//! https://wiki.analog.com/resources/eval/user-guides/eval-adicup360/reference_designs/demo_cn0411
+//! https://github.com/analogdevicesinc/EVAL-ADICUP360/blob/master/projects/ADuCM360_demo_cn0411/src/CN0411.c
 
 use embedded_hal::{
     adc::OneShot,
@@ -6,10 +10,7 @@ use embedded_hal::{
     digital::v2::OutputPin,
 };
 
-use ads1x1x::{
-    self,
-    channel::{DifferentialA0A1, SingleA2, SingleA3},
-};
+use ads1x1x::{self, channel::SingleA2};
 
 // todo: Once you make `SingleChannelDac` more abstract, remove this.
 use stm32f3xx_hal::{
@@ -34,15 +35,19 @@ const PWM_THRESH_LOW: f32 = 400.;
 // const PSC_MED_FREQ: u16 = 200;  // 617 Hz. mS
 // const PSC_HIGH_FREQ: u16 = 20;  // 2.4kHz. uS.
 
-// `V_DEF` is the desired applied voltage across the conductivity electrodes.
+// `V_PROBE_TGT` is the desired applied voltage across the conductivity electrodes.
 // Loose requirement from AD engineers: "100mV is good enough", and don't
 // overvolt the probe.
-const V_DEF: f32 = 0.15;
+// const V_PROBE_TGT: f32 = 0.1;
+const V_PROBE_TGT: f32 = 0.15;
+
+// `V_EXC_INIT` is our initial excitation voltage, set by the DAC.
+const V_EXC_INIT: f32 = 0.4;
+const AMP_GAIN: f32 = 10.; // Multiplication factor of the instrumentation amp.
+
 // Take the average of several readings, to produce smoother results.
 // A higher value of `N_SAMPLES` is more accurate, but takes longer.
 const N_SAMPLES: u8 = 10;
-
-const AMP_GAIN: f32 = 10.; // Multiplication factor of the instrumentation amp.
 
 #[repr(u16)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -230,38 +235,79 @@ where
         I2C: i2c::WriteRead<Error = E> + i2c::Write<Error = E> + i2c::Read<Error = E>,
     {
         // Set multiplexer to highest gain resistance
-        let mut gain = EcGain::One; // todo temp
+        let mut gain = EcGain::One;
         self.gain_switch.set(gain);
 
-        // Set DAC to Output V_EXC = 400mV, to start.
-        let mut v_exc = 0.4;
-        self.dac.set_voltage(v_exc);
+        // Set DAC to Output V_EXC; eg = 400mV, to start.
+        // let mut V_exc = V_EXC_INIT;
+        let mut V_exc = 0.4;
+        self.dac.set_voltage(V_exc);
 
-        delay.delay_ms(50);
+        delay.delay_ms(40);
         // Read ADC Input V+ and V-
-        let (mut v_p, mut v_m) = self.read_voltage(adc)?;
-        rprintln!("Vp: {:?}, Vm: {:?}", &v_p, &v_m);
+        let mut readings = self.read_voltage(adc)?;
+
+        // todo: Dry with the read circuit. If you end up using it here, make it its
+        // todo own fn.
+        let mut V_probe = (readings.0 + readings.1) / 2.;
+        let mut I = (V_exc - V_probe) / gain.resistance() as f32;
 
         // Note that higher conductivities result in higher gain, due to the nature of
         // our 2-part voltage divider. Resistance one is from the gain resistor; resistance
         // 2 is from the ec probe.
+
+        // We adjust gain until probe resistance and gain circuit resistance are
+        // at the same order of magnitude. We'd like the gain resistance
+        // to be higher than probe.
+
+        // Note: You exceed full-scale ADC range when probe resistance is
+        // higher than gain res
+        rprintln!("V: {:?} I: {:?}, R: {:?}", V_probe, I, gain.resistance());
+
+        // todo: Maintain voltage and mayb egain for next reading, or don't
+        // todo set range every time.
+
+        // We attempt to get probe and gain-circuit resistances to be on the same
+        // order of magnitude. We keep gain resistance higher than probe resistance,
+        // so we don't exceed the ADC fullscale range (currently set to +-2.048V). Note
+        // that this assumes a 10x voltage amplification by the instrumentation amp.
+        // If V_probe is set to 0.1, and probe resistance <= gain resistance,
+        // we should stay within that range.
+        // while ((gain.resistance() as f32) >= R_probe) && gain != EcGain::Seven {
         // todo: Make this 0.3 a constant and find out what it means.
-        while (v_p + v_m) / 2. <= (3. * v_exc as f32) && gain != EcGain::Seven {
+        // while (R_sol < gain.resistance() as f32 * 10.) && gain != EcGain::Seven {
+        // while ((v_p + v_m) / 2.) <= (0.3 * v_exc as f32) && gain != EcGain::Seven {
+
+        // Initially, it's likely the gain resistance will be much higher than probe resistance;
+        // Very little voltage will be read at the ADC. Increase gain until we get a voltage
+        // on the order of magnitude of v_exc. This also means gain resistance and probe
+        // resistance are on the same order of magnitude.
+        while V_probe <= (0.3 * V_exc as f32) && gain != EcGain::Seven {
+            // todo: Dry setting gain and v_exc between here, and before the loop
             gain = gain.raise();
             self.gain_switch.set(gain);
 
-            // todo: DRY!
+            // .1V reading. <= 1.2V limit
+
             // Read ADC Input V+ and V-
             delay.delay_ms(50);
-            let readings = self.read_voltage(adc)?;
-            v_p = readings.0;
-            v_m = readings.1;
+            readings = self.read_voltage(adc)?;
+
+            V_probe = (readings.0 + readings.1) / 2.;
+            I = (V_exc - V_probe) / gain.resistance() as f32;
+            rprintln!("V: {:?} I: {:?}, R: {:?}", V_probe, I, gain.resistance());
         }
 
-        v_exc = V_DEF * (v_exc as f32) / ((v_p + v_m) / 0.05);
-        self.dac.set_voltage(v_exc);
+        // Set excitation voltage to deliver a target voltage across the probe. This prevents
+        // overvolting both the probe, and ADC. (Since ADC input is v_probe, amplified.)
+        // See `measure` for how we
+        V_exc = I * gain.resistance() as f32 + V_PROBE_TGT;
+        self.dac.set_voltage(V_exc);
+        rprintln!("FINAL vexc: {:?}", &V_exc);
 
-        Ok((v_exc, gain))
+        delay.delay_ms(40);
+
+        Ok((V_exc, gain))
     }
 
     /// We use the PWM timer's channels 2 and 3 to trigger readings at the appropriate times in
@@ -300,9 +346,9 @@ where
         Ok((v_p / AMP_GAIN, v_m / AMP_GAIN))
     }
 
-    /// Misleading name compared to other sensors. This is our uncalibrated reading, used
-    /// for calibrating. Similar to others sensors' `read_voltage()`.
-    pub fn read_direct<D, I2C, E>(
+    /// Take an uncalibrated reading, without adjusting PWM.
+    /// Similar in use to others sensors' `read_voltage()`.
+    pub fn measure<D, I2C, E>(
         &mut self,
         adc: &mut crate::Adc<I2C>,
         delay: &mut D,
@@ -315,7 +361,7 @@ where
         // [dis]enabling the dac each reading should improve battery usage.
         self.dac.enable(apb1);
         // todo: Set ADC sample speed here?
-        delay.delay_ms(30); // Delay to let current flow from the DAC. // todo: Customize this.
+        delay.delay_ms(50); // Delay to let current flow from the DAC. // todo: Customize this.
 
         // Delay to charge the sample and hold before reading.
         let (V_exc, gain) = self.set_range(adc, delay)?;
@@ -339,29 +385,26 @@ where
         let v_p = v_p_cum / N_SAMPLES as f32;
         let v_m = v_m_cum / N_SAMPLES as f32;
 
-        rprintln!("Vp: {:?}, vm: {:?}", &v_p, &v_m);
+        // We calculate conductivity across the probe using a voltage-divider model.
+        // We know the following:
+        // V_exc (set by DAC)
+        // R_gain (set by multiplexer)
+        // V_out (measuring by ADC), is the same as V_probe
+        //
+        // We solve for current, and use it to calculate conductivity:
+        //
+        // I = V_exc / (R_gain + R_probe) = V_exc / (R_gain + V_probe / I)
+        // I(R_gain + V_probe / I) = V_exc
+        // I x R_gain + V_probe = V_exc
+        // I = (V_exc - V_probe) / R_gain
 
-        // See also
-        // https://wiki.analog.com/resources/eval/user-guides/eval-adicup360/reference_designs/demo_cn0411
-        // https://github.com/analogdevicesinc/EVAL-ADICUP360/blob/master/projects/ADuCM360_demo_cn0411/src/CN0411.c
-
-        // `pp` means peak-to-peak
-        // `V_probe` is the voltage drop across the probe
-        // Divide by 2 since we're averaging 2 measurements.
-        let V_probe = V_exc - (v_p + v_m) / 2.;
-
-        // `I_probe` is the current flowing through the gain circuitry, then probe.
-        let I = V_exc / (gain.resistance() as f32);
-
+        let V_probe = (v_p + v_m) / 2.;
+        // `I` is the current flowing through the gain circuitry, then probe.
+        let I = (V_exc - V_probe) / gain.resistance() as f32;
         // K is in 1/cm. eg: K=1.0 could mean 2 1cm square plates 1cm apart.
         let Y_sol = self.K_cell * I / V_probe;
 
-        rprintln!(
-            "V: {:?} I: {:?}, R: {:?}",
-            V_probe,
-            I,
-            gain.resistance()
-        );
+        rprintln!("V: {:?} I: {:?}, R: {:?}", V_probe, I, gain.resistance());
 
         Ok(Y_sol)
     }
@@ -381,35 +424,36 @@ where
         D: DelayMs<u16>,
         I2C: i2c::WriteRead<Error = E> + i2c::Write<Error = E> + i2c::Read<Error = E>,
     {
-        let Y_sol = self.read_direct(adc, delay, apb1)?;
+        let Y_sol = self.measure(adc, delay, apb1)?;
 
         let result = ec_from_reading(Y_sol, &self.cal_1, &self.cal_2, T);
 
-        if result > PWM_THRESH_HIGH && self.last_meas != PwmFreq::High {
-            unsafe {
-                (*TIM2::ptr())
-                    .psc
-                    .write(|w| w.psc().bits(PwmFreq::High as u16));
-            }
-            self.last_meas = PwmFreq::High;
-        } else if result > PWM_THRESH_LOW
-            && result < PWM_THRESH_HIGH
-            && self.last_meas != PwmFreq::Med
-        {
-            unsafe {
-                (*TIM2::ptr())
-                    .psc
-                    .write(|w| w.psc().bits(PwmFreq::Med as u16));
-            }
-            self.last_meas = PwmFreq::Med;
-        } else if result < PWM_THRESH_LOW && self.last_meas != PwmFreq::Low {
-            unsafe {
-                (*TIM2::ptr())
-                    .psc
-                    .write(|w| w.psc().bits(PwmFreq::Low as u16));
-            }
-            self.last_meas = PwmFreq::Low;
-        }
+        // todo: Put back
+        // if result > PWM_THRESH_HIGH && self.last_meas != PwmFreq::High {
+        //     unsafe {
+        //         (*TIM2::ptr())
+        //             .psc
+        //             .write(|w| w.psc().bits(PwmFreq::High as u16));
+        //     }
+        //     self.last_meas = PwmFreq::High;
+        // } else if result > PWM_THRESH_LOW
+        //     && result < PWM_THRESH_HIGH
+        //     && self.last_meas != PwmFreq::Med
+        // {
+        //     unsafe {
+        //         (*TIM2::ptr())
+        //             .psc
+        //             .write(|w| w.psc().bits(PwmFreq::Med as u16));
+        //     }
+        //     self.last_meas = PwmFreq::Med;
+        // } else if result < PWM_THRESH_LOW && self.last_meas != PwmFreq::Low {
+        //     unsafe {
+        //         (*TIM2::ptr())
+        //             .psc
+        //             .write(|w| w.psc().bits(PwmFreq::Low as u16));
+        //     }
+        //     self.last_meas = PwmFreq::Low;
+        // }
 
         Ok(result)
     }
@@ -420,11 +464,10 @@ where
     }
 }
 
-/// Convert sensor voltage to ORP voltage
-/// We model the relationship between sensor output and ec linearly.
+/// Apply 1 point calibration to the readings.
 fn ec_from_reading(reading: f32, cal_0: &CalPtEc, cal_1: &Option<CalPtEc>, T: f32) -> f32 {
     // a is the slope, ec / reading.
-    rprintln!("RAW: {:?}", &reading);
+    rprintln!("RAW uS/cm: {:?}", reading * 1_000_000.);
     let T_diff = T - cal_0.T;
     // let T_comp = PH_TEMP_C * T_diff; // pH / V
     let T_comp = 0.;
@@ -492,3 +535,5 @@ fn ec_from_reading(reading: f32, cal_0: &CalPtEc, cal_1: &Option<CalPtEc>, T: f3
     // Y_sol / (1. + a * (T - cal_0.T))
     Y_sol
 }
+
+// todo: Consider only allowing one conductivity pt!
