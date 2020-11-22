@@ -10,7 +10,7 @@ use embedded_hal::{
     digital::v2::OutputPin,
 };
 
-use ads1x1x::{self, channel::SingleA2};
+use ads1x1x::{self, channel::SingleA2, FullScaleRange};
 
 // todo: Once you make `SingleChannelDac` more abstract, remove this.
 use stm32f3xx_hal::{
@@ -31,19 +31,16 @@ use crate::CalPtEc;
 // 94Hz for uS, and 2.4khz for mS range,
 const PWM_THRESH_HIGH: f32 = 1_200.;
 const PWM_THRESH_LOW: f32 = 400.;
-// const PSC_LOW_FREQ: u16 = 532;  // 94 Hz. mS
-// const PSC_MED_FREQ: u16 = 200;  // 617 Hz. mS
-// const PSC_HIGH_FREQ: u16 = 20;  // 2.4kHz. uS.
 
 // `V_PROBE_TGT` is the desired applied voltage across the conductivity electrodes.
 // Loose requirement from AD engineers: "100mV is good enough", and don't
 // overvolt the probe.
-// const V_PROBE_TGT: f32 = 0.1;
-const V_PROBE_TGT: f32 = 0.15;
+const V_PROBE_TGT: f32 = 0.1;
 
 // `V_EXC_INIT` is our initial excitation voltage, set by the DAC.
 const V_EXC_INIT: f32 = 0.4;
-const AMP_GAIN: f32 = 10.; // Multiplication factor of the instrumentation amp.
+// const AMP_GAIN: f32 = 10.; // Multiplication factor of the instrumentation amp.
+const AMP_GAIN: f32 = 1.; // Multiplication factor of the instrumentation amp.
 
 // Take the average of several readings, to produce smoother results.
 // A higher value of `N_SAMPLES` is more accurate, but takes longer.
@@ -75,26 +72,15 @@ pub enum EcGain {
 impl EcGain {
     /// Raise by one level.
     fn raise(&self) -> Self {
-        // todo temp until you fix the mux!! Evens are broke due to broken pad
         match self {
-            Self::One => Self::Three,
+            Self::One => Self::Two,
             Self::Two => Self::Three,
-            Self::Three => Self::Five,
+            Self::Three => Self::Four,
             Self::Four => Self::Five,
-            Self::Five => Self::Seven,
+            Self::Five => Self::Six,
             Self::Six => Self::Seven,
             Self::Seven => panic!("Gain is already at maximum"),
         }
-
-        // match self {
-        //     Self::One => Self::Two,
-        //     Self::Two => Self::Three,
-        //     Self::Three => Self::Four,
-        //     Self::Four => Self::Five,
-        //     Self::Five => Self::Six,
-        //     Self::Six => Self::Seven,
-        //     Self::Seven => panic!("Gain is already at maximum"),
-        // }
     }
 
     /// Display the resistance associated with gain, in Ω.
@@ -239,11 +225,18 @@ where
         self.gain_switch.set(gain);
 
         // Set DAC to Output V_EXC; eg = 400mV, to start.
-        // let mut V_exc = V_EXC_INIT;
-        let mut V_exc = 0.4;
+        let mut V_exc = V_EXC_INIT;
+        // let mut V_exc = 0.2;
         self.dac.set_voltage(V_exc);
 
-        delay.delay_ms(40);
+        // todo temp
+        // V_div = Vexc * (RPobe / (Rpobe + Rgain))
+        // If Rprobe is very high, Vdiv = Vexc
+        // if Rprobe is ver low, Vdiv = 0
+        // If Rgain is very high, Vdiv = 0
+        // if Rgain is very low, Vdiv = Vexc
+
+        delay.delay_ms(30);
         // Read ADC Input V+ and V-
         let mut readings = self.read_voltage(adc)?;
 
@@ -267,22 +260,21 @@ where
         // todo: Maintain voltage and mayb egain for next reading, or don't
         // todo set range every time.
 
+        // return Ok((V_exc, gain));
+
         // We attempt to get probe and gain-circuit resistances to be on the same
         // order of magnitude. We keep gain resistance higher than probe resistance,
         // so we don't exceed the ADC fullscale range (currently set to +-2.048V). Note
         // that this assumes a 10x voltage amplification by the instrumentation amp.
         // If V_probe is set to 0.1, and probe resistance <= gain resistance,
         // we should stay within that range.
-        // while ((gain.resistance() as f32) >= R_probe) && gain != EcGain::Seven {
-        // todo: Make this 0.3 a constant and find out what it means.
-        // while (R_sol < gain.resistance() as f32 * 10.) && gain != EcGain::Seven {
-        // while ((v_p + v_m) / 2.) <= (0.3 * v_exc as f32) && gain != EcGain::Seven {
 
         // Initially, it's likely the gain resistance will be much higher than probe resistance;
         // Very little voltage will be read at the ADC. Increase gain until we get a voltage
         // on the order of magnitude of v_exc. This also means gain resistance and probe
         // resistance are on the same order of magnitude.
-        while V_probe <= (0.3 * V_exc as f32) && gain != EcGain::Seven {
+        // while V_probe <= (0.3 * V_exc) && gain != EcGain::Seven {
+        while V_probe <= (0.2 * V_exc) && gain != EcGain::Seven {
             // todo: Dry setting gain and v_exc between here, and before the loop
             gain = gain.raise();
             self.gain_switch.set(gain);
@@ -290,11 +282,11 @@ where
             // .1V reading. <= 1.2V limit
 
             // Read ADC Input V+ and V-
-            delay.delay_ms(50);
+            delay.delay_ms(30);
             readings = self.read_voltage(adc)?;
 
             V_probe = (readings.0 + readings.1) / 2.;
-            I = (V_exc - V_probe) / gain.resistance() as f32;
+            I = (V_exc - V_probe) / gain.resistance() as f32; // todo: Move this line out of the loop
             rprintln!("V: {:?} I: {:?}, R: {:?}", V_probe, I, gain.resistance());
         }
 
@@ -305,7 +297,7 @@ where
         self.dac.set_voltage(V_exc);
         rprintln!("FINAL vexc: {:?}", &V_exc);
 
-        delay.delay_ms(40);
+        delay.delay_ms(30);
 
         Ok((V_exc, gain))
     }
@@ -335,13 +327,12 @@ where
         // }
 
         unsafe { (*pac::TIM2::ptr()).sr.modify(|_, w| w.cc2if().clear_bit()) }
-        // while unsafe { !(*pac::TIM2::ptr()).sr.read().cc2if().bit() } {}
-        let v_p = crate::voltage_from_adc(block!(adc.read(&mut SingleA2)).unwrap_or(0));
+        while unsafe { !(*pac::TIM2::ptr()).sr.read().cc2if().bit() } {}
+        let v_p = crate::voltage_from_adc_512(block!(adc.read(&mut SingleA2)).unwrap_or(0));
 
-        // todo: PUt the waits back!!
         unsafe { (*pac::TIM2::ptr()).sr.modify(|_, w| w.cc3if().clear_bit()) }
-        // while unsafe { !(*pac::TIM2::ptr()).sr.read().cc3if().bit() } {}
-        let v_m = crate::voltage_from_adc(block!(adc.read(&mut SingleA2)).unwrap_or(0));
+        while unsafe { !(*pac::TIM2::ptr()).sr.read().cc3if().bit() } {}
+        let v_m = crate::voltage_from_adc_512(block!(adc.read(&mut SingleA2)).unwrap_or(0));
 
         Ok((v_p / AMP_GAIN, v_m / AMP_GAIN))
     }
@@ -358,6 +349,8 @@ where
         D: DelayMs<u16>,
         I2C: i2c::WriteRead<Error = E> + i2c::Write<Error = E> + i2c::Read<Error = E>,
     {
+        adc.set_full_scale_range(FullScaleRange::Within0_512V);
+
         // [dis]enabling the dac each reading should improve battery usage.
         self.dac.enable(apb1);
         // todo: Set ADC sample speed here?
@@ -372,15 +365,13 @@ where
         let mut v_m_cum = 0.;
 
         for _ in 0..N_SAMPLES {
-            // the lowest freq we use is 94hz. Period = ~11ms.
             let (v_p, v_m) = self.read_voltage(adc)?;
-            // rprintln!("Vp: {:?}, vm: {:?}", &v_p, &v_m);
             delay.delay_ms(10);
             v_p_cum += v_p;
             v_m_cum += v_m;
         }
 
-        // self.dac.disable(apb1); // todo: temp; put back
+        self.dac.disable(apb1);
 
         let v_p = v_p_cum / N_SAMPLES as f32;
         let v_m = v_m_cum / N_SAMPLES as f32;
@@ -428,32 +419,31 @@ where
 
         let result = ec_from_reading(Y_sol, &self.cal_1, &self.cal_2, T);
 
-        // todo: Put back
-        // if result > PWM_THRESH_HIGH && self.last_meas != PwmFreq::High {
-        //     unsafe {
-        //         (*TIM2::ptr())
-        //             .psc
-        //             .write(|w| w.psc().bits(PwmFreq::High as u16));
-        //     }
-        //     self.last_meas = PwmFreq::High;
-        // } else if result > PWM_THRESH_LOW
-        //     && result < PWM_THRESH_HIGH
-        //     && self.last_meas != PwmFreq::Med
-        // {
-        //     unsafe {
-        //         (*TIM2::ptr())
-        //             .psc
-        //             .write(|w| w.psc().bits(PwmFreq::Med as u16));
-        //     }
-        //     self.last_meas = PwmFreq::Med;
-        // } else if result < PWM_THRESH_LOW && self.last_meas != PwmFreq::Low {
-        //     unsafe {
-        //         (*TIM2::ptr())
-        //             .psc
-        //             .write(|w| w.psc().bits(PwmFreq::Low as u16));
-        //     }
-        //     self.last_meas = PwmFreq::Low;
-        // }
+        if result > PWM_THRESH_HIGH && self.last_meas != PwmFreq::High {
+            unsafe {
+                (*TIM2::ptr())
+                    .psc
+                    .write(|w| w.psc().bits(PwmFreq::High as u16));
+            }
+            self.last_meas = PwmFreq::High;
+        } else if result > PWM_THRESH_LOW
+            && result < PWM_THRESH_HIGH
+            && self.last_meas != PwmFreq::Med
+        {
+            unsafe {
+                (*TIM2::ptr())
+                    .psc
+                    .write(|w| w.psc().bits(PwmFreq::Med as u16));
+            }
+            self.last_meas = PwmFreq::Med;
+        } else if result < PWM_THRESH_LOW && self.last_meas != PwmFreq::Low {
+            unsafe {
+                (*TIM2::ptr())
+                    .psc
+                    .write(|w| w.psc().bits(PwmFreq::Low as u16));
+            }
+            self.last_meas = PwmFreq::Low;
+        }
 
         Ok(result)
     }

@@ -319,9 +319,6 @@ impl<CS: OutputPin> Rtd<CS> {
         Ok([rtd_high, rtd_low, refin1, refin2, rtdin, overv])
     }
 
-    /// (From driver notes:   You can perform calibration by putting the sensor in boiling (100 degrees
-    /// Celcius) water and then measuring the raw value using `read_raw`. Calculate
-    /// `calib` as `(13851 << 15) / raw >> 1`.
     /// todo: Sort this out.
     ///
     /// Set the calibration reference resistance.

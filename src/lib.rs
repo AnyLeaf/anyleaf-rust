@@ -820,6 +820,14 @@ pub fn voltage_from_adc(digi: i16) -> f32 {
     (digi as f32 / 32_768.) * vref
 }
 
+/// Convert a 16-bit digital value to voltage.
+/// Input ranges from +- 0.512V; this is configurable.
+/// Output ranges from -32_768 to +32_767.
+pub fn voltage_from_adc_512(digi: i16) -> f32 {
+    let vref = 0.512;
+    (digi as f32 / 32_768.) * vref
+}
+
 /// Compute the result of a Lagrange polynomial of order 3.
 /// Algorithm created from the `P(x)` eq
 /// [here](https://mathworld.wolfram.com/LagrangeInterpolatingPolynomial.html).
