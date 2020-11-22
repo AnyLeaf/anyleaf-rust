@@ -71,14 +71,11 @@ use ads1x1x::{
     channel::{DifferentialA0A1, SingleA2},
     ic::{Ads1115, Resolution16Bit},
     interface::I2cInterface,
-    Ads1x1x, FullScaleRange, SlaveAddr,
+    Ads1x1x, SlaveAddr,
 };
 use embedded_hal::{
     adc::OneShot,
-    blocking::delay::DelayMs,
     blocking::i2c::{Read, Write, WriteRead},
-    blocking::spi,
-    digital::v2::OutputPin,
 };
 use filter::kalman::kalman_filter::KalmanFilter;
 
@@ -87,19 +84,13 @@ use nalgebra::{
     Vector1,
 };
 
-use stm32f3xx_hal::{dac::Dac, pac::TIM2, rcc::APB1, timer::Timer};
-
 use num_traits::float::FloatCore; // Required to take absolute value in `no_std`.
 
-mod ec;
 mod filter_;
 mod rtd;
 mod storage;
 
-use ec::EcSensor;
 pub use rtd::{Rtd, RtdType, Wires};
-
-pub use ec::EcGain; // todo: TEmp
 
 // Compensate for temperature diff between readings and calibration.
 const PH_TEMP_C: f32 = -0.05694; // pH/(V*T). V is in volts, and T is in °C
@@ -560,271 +551,11 @@ pub struct Readings {
     pub ec: Result<f32, SensorError>,
 }
 
-/// We use this to pull data from the Water Monitor to an external program over I2C.
-/// It interacts directly with the ADCs, and has no interaction to the Water Monitor's MCU.
-/// We own the I2C bus, and borrow SPI, currently.
-/// `EI` is for I2C errors. `ES` is for SPI errors.
-/// todo: For now, this is just for external connections to the Water Monitor: We don't
-/// todo use it in its project code, although we could change that.
-// todo: Be able to properly fail for both SPI and I2C errors. We currently
-// todo: only properly handle I2C ones.
-pub struct WaterMonitor<I2C, CsRtd, P0, P1, P2, EI>
-where
-    I2C: WriteRead<Error = EI> + Write<Error = EI> + Read<Error = EI>,
-    CsRtd: OutputPin,
-    P0: OutputPin,
-    P1: OutputPin,
-    P2: OutputPin,
-{
-    pub rtd: Rtd<CsRtd>,         // Max31865 RTD chip.
-    pub ph: PhSensor<I2C, EI>,   // at 0x48. Inludes the temp sensor at input A3.
-    pub orp: OrpSensor<I2C, EI>, // at 0x49. Inlucdes the ec sensor at input A3.
-    pub ec: EcSensor<P0, P1, P2>,
-}
-
-impl<I2C, CsRtd, P0, P1, P2, EI> WaterMonitor<I2C, CsRtd, P0, P1, P2, EI>
-where
-    I2C: WriteRead<Error = EI> + Write<Error = EI> + Read<Error = EI>,
-    CsRtd: OutputPin,
-    P0: OutputPin,
-    P1: OutputPin,
-    P2: OutputPin,
-{
-    pub fn new<SPI, ES>(
-        spi: &mut SPI,
-        i2c: I2C,
-        cs_rtd: CsRtd,
-        dac: Dac,
-        switch_pins: (P0, P1, P2),
-        K_cell: f32, // conductivity cell constant
-        dt: f32,     // seconds
-    ) -> Self
-    where
-        SPI: spi::Write<u8, Error = ES> + spi::Transfer<u8, Error = ES>,
-    {
-        let rtd = Rtd::new(spi, cs_rtd, RtdType::Pt100, Wires::Three);
-
-        let mut ph = PhSensor::new(i2c, dt);
-        // Use the default range of 2.048V for pH measurement. We use 6.144V for checking
-        // battery life, and if plugged in.
-        // ph.adc
-        //     .as_mut()
-        //     .expect("Measurement after I2C freed")
-        //     .set_full_scale_range(FullScaleRange::Within2_048V)
-        //     .ok();
-
-        let i2c = ph.free();
-
-        let mut orp = OrpSensor::new_alt_addr(i2c, dt);
-        ph.unfree(orp.free());
-
-        // let ec = EcSensor::new(dac, switch_pins, pwm, K_cell);
-        let ec = EcSensor::new(dac, switch_pins, K_cell);
-
-        // todo: You should perhaps have these as options or results, so hardware failures like for
-        // todo the RTD don't crash the program.
-        Self { ph, orp, rtd, ec }
-    }
-
-    // Read all sensors. EC reading is in uS/Cm2
-    pub fn read_all<SPI, ES, D>(
-        &mut self,
-        spi: &mut SPI,
-        delay: &mut D,
-        apb1: &mut APB1,
-        timer: &mut Timer<TIM2>,
-    ) -> Readings
-    where
-        SPI: spi::Write<u8, Error = ES> + spi::Transfer<u8, Error = ES>,
-        D: DelayMs<u16>,
-    {
-        let T = self.read_temp(spi);
-        // Don't invalidate the temperature-compensated readings just because
-        // we have a problem reading temperature. The user will have to note
-        // that they may have errors due to this, but still take the readings.
-        let T2 = T.unwrap_or(25.);
-
-        // todo block! Readings are crashing the program instead of failing
-        // todo gracefully!
-
-        // Read EC last, so we don't turn on the activation current until the other readings
-        // have been takien.
-        Readings {
-            pH: self.read_ph(T2),
-            T,
-            ORP: self.read_orp(),
-            ec: self.read_ec(delay, T2, apb1, timer),
-        }
-    }
-
-    /// Read temperature from the MAX31865 RTD IC.
-    pub fn read_temp<SPI, ES>(&mut self, spi: &mut SPI) -> Result<f32, SensorError>
-    where
-        SPI: spi::Write<u8, Error = ES> + spi::Transfer<u8, Error = ES>,
-    {
-        match self.rtd.read(spi) {
-            Ok(v) => Ok(v),
-            Err(_) => Err(SensorError::Bus),
-        }
-    }
-
-    /// Read pH from the `orp_ph` ADC.
-    pub fn read_ph(&mut self, T: f32) -> Result<f32, SensorError> {
-        self.ph_take();
-        // todo: temp using raw readings due to filter update error.
-        match self.ph.read_raw(TempSource::OffBoard(T)) {
-            Ok(v) => Ok(v),
-            Err(_) => Err(SensorError::Bus),
-        }
-    }
-
-    /// Read ORP from the `orp_ph` ADC.
-    pub fn read_orp(&mut self) -> Result<f32, SensorError> {
-        self.orp_take();
-        match self.orp.read() {
-            Ok(v) => Ok(v),
-            Err(_) => Err(SensorError::Bus),
-        }
-    }
-
-    /// Read electrical conductivity.
-    pub fn read_ec<D: DelayMs<u16>>(
-        &mut self,
-        delay: &mut D,
-        T: f32,
-        apb1: &mut APB1,
-        timer: &mut Timer<TIM2>,
-    ) -> Result<f32, SensorError> {
-        self.orp_take();
-        match self
-            .ec
-            .read(&mut self.orp.adc.as_mut().unwrap(), delay, T, apb1, timer)
-        {
-            Ok(v) => Ok(v),
-            Err(_) => Err(SensorError::Bus),
-        }
-    }
-
-    /// Read raw voltage from the pH probe.
-    pub fn read_ph_voltage(&mut self) -> Result<f32, SensorError> {
-        self.ph_take();
-
-        match self.ph.read_voltage() {
-            Ok(v) => Ok(v),
-            Err(_) => Err(SensorError::Bus),
-        }
-    }
-
-    /// Read raw voltage from the ORP probe.
-    pub fn read_orp_voltage(&mut self) -> Result<f32, SensorError> {
-        self.orp_take();
-
-        match self.orp.read_voltage() {
-            Ok(v) => Ok(v),
-            Err(_) => Err(SensorError::Bus),
-        }
-    }
-
-    /// Uncalibrated EC reading without calibration or temp comp. Not straight voltage.
-    pub fn read_ec_voltage<D: DelayMs<u16>>(
-        &mut self,
-        delay: &mut D,
-        apb1: &mut APB1,
-        timer: &mut Timer<TIM2>,
-    ) -> Result<f32, SensorError> {
-        self.orp_take();
-
-        match self
-            .ec
-            .measure(&mut self.orp.adc.as_mut().unwrap(), delay, apb1)
-        {
-            Ok(v) => Ok(v),
-            Err(_) => Err(SensorError::Bus),
-        }
-    }
-
-    pub fn calibrate_all_ph(&mut self, pt0: CalPt, pt1: CalPt, pt2: Option<CalPt>) {
-        self.ph.calibrate_all(pt0, pt1, pt2);
-    }
-
-    //    pub fn calibrate_all_temp(&mut self, pt0: CalPtT, pt1: CalPtT) {
-    //        self.cal_temp_1 = pt0;
-    //        self.cal_temp_2 = pt1;
-    //    }
-
-    pub fn calibrate_all_orp(&mut self, pt: CalPtOrp) {
-        self.orp.calibrate_all(pt);
-    }
-
-    pub fn calibrate_all_ec(&mut self, pt0: CalPtEc, pt1: Option<CalPtEc>) {
-        self.ec.calibrate_all(pt0, pt1);
-    }
-
-    /// Check 1 or USB power voltage, connected to A2 of the pH
-    /// ADC.
-    pub fn check_battery_voltage(&mut self) -> Result<f32, SensorError> {
-        self.ph_take();
-
-        // Set a max range of 6.144V for testing the ~5v power connection.
-        // self.ph
-        //     .adc
-        //     .as_mut()
-        //     .expect("Measurement after I2C freed")
-        //     .set_full_scale_range(FullScaleRange::Within6_144V)
-        //     .ok();
-
-        let reading = block!(self
-            .ph
-            .adc
-            .as_mut()
-            .expect("Measurement after I2C freed")
-            .read(&mut SingleA2));
-
-        // Reset the range for pH measurement.
-        // self.ph
-        //     .adc
-        //     .as_mut()
-        //     .expect("Measurement after I2C freed")
-        //     .set_full_scale_range(FullScaleRange::Within2_048V)
-        //     .ok();
-
-        match reading {
-            Ok(r) => {
-                let vref = 6.144;
-                Ok((r as f32 / 32_768.) * vref)
-            }
-            Err(_) => Err(SensorError::Bus),
-        }
-    }
-
-    /// Helper function to take the I2C peripheral.
-    pub fn ph_take(&mut self) {
-        if self.ph.adc.is_none() {
-            self.ph.unfree(self.orp.free());
-        }
-    }
-
-    /// Helper function to take the I2C peripheral.
-    pub fn orp_take(&mut self) {
-        if self.orp.adc.is_none() {
-            self.orp.unfree(self.ph.free());
-        }
-    }
-}
-
 /// Convert a 16-bit digital value to voltage.
 /// Input ranges from +- 2.048V; this is configurable.
 /// Output ranges from -32_768 to +32_767.
 pub fn voltage_from_adc(digi: i16) -> f32 {
     let vref = 2.048;
-    (digi as f32 / 32_768.) * vref
-}
-
-/// Convert a 16-bit digital value to voltage.
-/// Input ranges from +- 0.512V; this is configurable.
-/// Output ranges from -32_768 to +32_767.
-pub fn voltage_from_adc_512(digi: i16) -> f32 {
-    let vref = 0.512;
     (digi as f32 / 32_768.) * vref
 }
 

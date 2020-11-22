@@ -30,7 +30,6 @@ dependencies = [
  "nb",
  "num-traits",
  "rtt-target",
- "stm32f3xx-hal",
 ]
 
 [[package]]
@@ -75,31 +74,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "46afbd2983a5d5a7bd740ccb198caf5b82f45c40c09c0eed36052d91cb92e719"
 
 [[package]]
-name = "cast"
-version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b9434b9a5aa1450faa3f9cb14ea0e8c53bb5d2b3c1bfd1ab4fc03e9f33fbfb0"
-dependencies = [
- "rustc_version",
-]
-
-[[package]]
-name = "cfg-if"
-version = "0.1.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4785bdd1c96b2a846b2bd7cc02e86b6b3dbf14e7e53446c4f54c92a361040822"
-
-[[package]]
-name = "chrono"
-version = "0.4.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "942f72db697d8767c22d46a598e01f2d3b475501ea43d0db4f16d90259182d0b"
-dependencies = [
- "num-integer",
- "num-traits",
-]
-
-[[package]]
 name = "cortex-m"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -109,36 +83,6 @@ dependencies = [
  "bare-metal",
  "bitfield",
  "volatile-register",
-]
-
-[[package]]
-name = "cortex-m-rt"
-version = "0.6.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "00d518da72bba39496024b62607c1d8e37bcece44b2536664f1132a73a499a28"
-dependencies = [
- "cortex-m-rt-macros",
- "r0",
-]
-
-[[package]]
-name = "cortex-m-rt-macros"
-version = "0.1.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4717562afbba06e760d34451919f5c3bf3ac15c7bb897e8b04862a7428378647"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "embedded-dma"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46c8c02e4347a0267ca60813c952017f4c5948c232474c6010a381a337f1bda4"
-dependencies = [
- "stable_deref_trait",
 ]
 
 [[package]]
@@ -259,12 +203,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "paste"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba7ae1a2180ed02ddfdb5ab70c70d596a26dd642e097bb6fe78b1bde8588ed97"
-
-[[package]]
 name = "paste-impl"
 version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -307,12 +245,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "r0"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2a38df5b15c8d5c7e8654189744d8e396bddc18ad48041a500ce52d6948941f"
-
-[[package]]
 name = "rand"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -346,15 +278,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ca3129af7b92a17112d59ad498c6f81eaf463253766b90396d39ea7a39d6613c"
 dependencies = [
  "rand_core",
-]
-
-[[package]]
-name = "rtcc"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1048f7217bcd4bd977c01288e4973a69cf9195681f8b0b3a45d92ea21148f4a8"
-dependencies = [
- "chrono",
 ]
 
 [[package]]
@@ -400,7 +323,7 @@ dependencies = [
  "approx",
  "num-complex",
  "num-traits",
- "paste 0.1.15",
+ "paste",
 ]
 
 [[package]]
@@ -408,48 +331,6 @@ name = "stable_deref_trait"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
-
-[[package]]
-name = "stm32-usbd"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70d13eca735cae37df697f599777b000cc0ee924df8452f2b4bfaa6798ab0338"
-dependencies = [
- "cortex-m",
- "usb-device",
- "vcell",
-]
-
-[[package]]
-name = "stm32f3"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "636387c2c5af11075c8ed3ef203c01460204be3a479397c2380622cbd61a673f"
-dependencies = [
- "bare-metal",
- "cortex-m",
- "cortex-m-rt",
- "vcell",
-]
-
-[[package]]
-name = "stm32f3xx-hal"
-version = "0.5.0"
-dependencies = [
- "bare-metal",
- "cast",
- "cfg-if",
- "cortex-m",
- "cortex-m-rt",
- "embedded-dma",
- "embedded-hal",
- "nb",
- "paste 1.0.2",
- "rtcc",
- "stm32-usbd",
- "stm32f3",
- "void",
-]
 
 [[package]]
 name = "syn"
@@ -479,12 +360,6 @@ name = "unicode-xid"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "826e7639553986605ec5979c7dd957c7895e93eabed50ab2ffa7f6128a75097c"
-
-[[package]]
-name = "usb-device"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e5e2b9ba23f0d9ef7a34e498b6581c9d67944a1916542bfc7238bf1dc0d6acd"
 
 [[package]]
 name = "vcell"
