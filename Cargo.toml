@@ -15,8 +15,9 @@ license = "MIT"
 [dependencies]
 embedded-hal = {version = "0.2.4", features = ["unproven"]}
 
-ads1x1x = "0.2.1"
-nb = "0.1.2" # ADC  todo: Old version due to ads1x1x using old version.
+#ads1x1x = "0.2.1"
+ads1x1x = { path = "../../../../Desktop/ads1x1x-rs"}
+nb = "0.1.2" # ADC  todo: Old version due to ads1x1x and EH using old version.
 
 filter = { version = "0.2.0", default-features = false }
 # `num-traits` is required by filter, but we need to disable features on it manually.

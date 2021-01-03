@@ -177,7 +177,7 @@ impl CalPtEc {
 }
 
 pub struct PhSensor<I2C: Read<Error = E> + Write<Error = E> + WriteRead<Error = E>, E> {
-    pub(crate) adc: Option<
+    pub adc: Option<
         Ads1x1x<
             ads1x1x::interface::I2cInterface<I2C>,
             Ads1115,
@@ -278,7 +278,7 @@ impl<I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>, E> PhSensor
     /// Take a pH reading, without using the Kalman filter
     // todo: find the right error type for nb/ads111x
     // todo: Error type: is this right? Read:Error instead?
-    fn read_raw(&mut self, t: TempSource) -> Result<f32, ads1x1x::Error<E>> {
+    pub fn read_raw(&mut self, t: TempSource) -> Result<f32, ads1x1x::Error<E>> {
         let T = match t {
             TempSource::OnBoard => temp_from_voltage(voltage_from_adc(block!(self
                 .adc
@@ -373,7 +373,7 @@ pub struct OrpSensor<I2C: Read<Error = E> + Write<Error = E> + WriteRead<Error =
     // These sensors operate in a similar, minus the conversion from
     // voltage to measurement, not compensating for temp, and using only 1 cal pt.
     // The adc will be empty if I2C has been freed.
-    pub(crate) adc: Option<
+    pub adc: Option<
         Ads1x1x<
             ads1x1x::interface::I2cInterface<I2C>,
             Ads1115,
