@@ -10,20 +10,16 @@ categories = ["embedded", "science"]
 readme = "README.md"
 license = "MIT"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-embedded-hal = {version = "0.2.4", features = ["unproven"]}
+embedded-hal = {version = "^0.2.4", features = ["unproven"]}
 
 # Custom ads1x1x branch due to needing OneShot trait on
 # &mut Ads. Repo owner is unable to rep, so won't merge.
-# ads1x1x = { git = "https://github.com/David-OConnor/ads1x1x-rs", branch="oneshot-mut" }
-#ads1x1x = { git = "https://github.com/eldruin/ads1x1x-rs", branch="master" }
-ads1x1x = "0.2.1"  # ADC driver
+ads1x1x = { git = "https://github.com/David-OConnor/ads1x1x-rs", branch="oneshot-mut" }
 # todo: Old version of `nb` due to ads1x1x and EH using old version.
 # todo: Once EH version is released, update to 1.0.0. Both EH and ads1x1x
 # todo have updated their GH.
- nb = "0.1.2"
+nb = "0.1.2"
 #nb = "1"
 
 filter = { version = "0.2.0", default-features = false }
