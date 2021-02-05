@@ -63,9 +63,6 @@
 #![allow(non_snake_case, clippy::needless_doctest_main)]
 #![feature(unsize)] // Used by the `max31865` module.
 
-#[macro_use(block)]
-extern crate nb;
-
 use ads1x1x::{
     self,
     channel::{DifferentialA0A1, SingleA2},
@@ -83,7 +80,7 @@ use nalgebra::{
     dimension::{U1, U2},
     Vector1,
 };
-
+use nb::block;
 use num_traits::float::FloatCore; // Required to take absolute value in `no_std`.
 
 mod filter_;

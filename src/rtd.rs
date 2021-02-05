@@ -108,8 +108,8 @@ pub struct Rtd<CS: OutputPin> {
 
 impl<CS: OutputPin> Rtd<CS> {
     pub fn new<SPI, E>(spi: &mut SPI, mut cs: CS, type_: RtdType, wires: Wires) -> Self
-        where
-            SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+    where
+        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
         cs.set_high().ok();
 
@@ -142,17 +142,17 @@ impl<CS: OutputPin> Rtd<CS> {
 
     /// Appears to be required after a power cycle, or it will read 0.
     pub fn re_init<SPI, E>(&mut self, spi: &mut SPI)
-        where SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+    where
+        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
-        self
-            .configure(
-                spi,
-                Vbias::On,
-                ConversionMode::Auto,
-                OneShot::OneShot,
-                FilterMode::Filter60Hz,
-            )
-            .ok();
+        self.configure(
+            spi,
+            Vbias::On,
+            ConversionMode::Auto,
+            OneShot::OneShot,
+            FilterMode::Filter60Hz,
+        )
+        .ok();
     }
 
     /// Updates the devices configuration.
@@ -179,8 +179,8 @@ impl<CS: OutputPin> Rtd<CS> {
         one_shot: OneShot,
         filter_mode: FilterMode,
     ) -> Result<(), E>
-        where
-            SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+    where
+        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
         let wires = match self.wires {
             Wires::Two => 0,
@@ -199,8 +199,8 @@ impl<CS: OutputPin> Rtd<CS> {
     }
 
     fn write<SPI, E>(&mut self, spi: &mut SPI, reg: Register, val: u8) -> Result<(), E>
-        where
-            SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+    where
+        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
         self.cs.set_low().ok();
         spi.write(&[reg.write_address(), val])?;
@@ -210,8 +210,8 @@ impl<CS: OutputPin> Rtd<CS> {
 
     /// Set filter mode to 50Hz AC noise, eg in Europe. Defaults to 60Hz for US.
     pub fn set_50hz<SPI, E>(&mut self, spi: &mut SPI) -> Result<(), E>
-        where
-            SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+    where
+        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
         // todo: Don't overwrite the whole config!
         self.configure(
@@ -226,17 +226,17 @@ impl<CS: OutputPin> Rtd<CS> {
     }
 
     fn read_data<SPI, E>(&mut self, spi: &mut SPI, reg: Register) -> Result<u8, E>
-        where
-            SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+    where
+        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
         let buffer: [u8; 2] = self.read_many(spi, reg)?;
         Ok(buffer[1])
     }
 
     fn read_many<B, SPI, E>(&mut self, spi: &mut SPI, reg: Register) -> Result<B, E>
-        where
-            B: Unsize<[u8]>,
-            SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+    where
+        B: Unsize<[u8]>,
+        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
         let mut buffer: B = unsafe { mem::zeroed() };
         {
@@ -260,8 +260,8 @@ impl<CS: OutputPin> Rtd<CS> {
     /// resistor). See manual for further information.
     /// The last bit specifies if the conversion was successful.
     pub fn read_raw<SPI, E>(&mut self, spi: &mut SPI) -> Result<u16, E>
-        where
-            SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+    where
+        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
         let msb: u16 = self.read_data(spi, Register::RTD_MSB)? as u16;
         let lsb: u16 = self.read_data(spi, Register::RTD_LSB)? as u16;
@@ -271,8 +271,8 @@ impl<CS: OutputPin> Rtd<CS> {
 
     /// Measure RTD resistance, in Ohms.
     pub fn read_resistance<SPI, E>(&mut self, spi: &mut SPI) -> Result<f32, E>
-        where
-            SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+    where
+        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
         let raw = self.read_raw(spi)?;
         Ok((((raw >> 1) as u32 * self.calibration) >> 15) as f32)
@@ -280,8 +280,8 @@ impl<CS: OutputPin> Rtd<CS> {
 
     /// Measure temperature, in Celsius
     pub fn read<SPI, E>(&mut self, spi: &mut SPI) -> Result<f32, E>
-        where
-            SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+    where
+        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
         let resistance = self.read_resistance(spi)?;
         let temp = lookup_temperature(resistance as u16, self.type_);
@@ -291,8 +291,8 @@ impl<CS: OutputPin> Rtd<CS> {
 
     /// Return the configuration register data.
     pub fn read_config<SPI, E>(&mut self, spi: &mut SPI) -> Result<[bool; 8], E>
-        where
-            SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+    where
+        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
         let status = self.read_data(spi, Register::CONFIG)?;
 
@@ -319,8 +319,8 @@ impl<CS: OutputPin> Rtd<CS> {
 
     /// Find the fault status. See Table 7.
     pub fn fault_status<SPI, E>(&mut self, spi: &mut SPI) -> Result<[bool; 6], E>
-        where
-            SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+    where
+        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
         let status = self.read_data(spi, Register::FAULT_STATUS)?;
 
@@ -351,8 +351,8 @@ impl<CS: OutputPin> Rtd<CS> {
     /// Celcius) water and then measuring the raw value using `read_raw`. Calculate
     /// `calib` as `(13851 << 15) / raw >> 1`.
     pub fn calibrate<SPI, E>(&mut self, spi: &mut SPI) -> Result<(), E>
-        where
-            SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+    where
+        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
         // todo
         let raw = self.read_raw(spi)?;
@@ -435,7 +435,7 @@ fn lookup_temperature(val: u16, _type: RtdType) -> u32 {
         // Don't crash the program with a divide-by-0 error
         // if no device is connected.
         if (second.1 - first.1) == 0 {
-            return 0
+            return 0;
         }
         (second.0 - first.0) as u32 * (val - first.1) as u32 / (second.1 - first.1) as u32
             + first.0 as u32

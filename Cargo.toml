@@ -3,7 +3,7 @@ name = "anyleaf"
 version = "0.1.7"
 authors = ["Anyleaf <david.alan.oconnor@gmail.com>"]
 edition = "2018"
-description = "Driver for the AnyLeaf pH sensor"
+description = "Driver for AnyLeaf sensors"
 keywords = ["scientific", "measurement", "ph", "anyleaf"]
 homepage = "https://github.com/anyleaf/anyleaf_ph"
 categories = ["embedded", "science"]
@@ -15,18 +15,21 @@ license = "MIT"
 [dependencies]
 embedded-hal = {version = "0.2.4", features = ["unproven"]}
 
-#ads1x1x = "0.2.1"
-ads1x1x = { path = "../../../../Desktop/ads1x1x-rs"}
-nb = "0.1.2" # ADC  todo: Old version due to ads1x1x and EH using old version.
+# Custom ads1x1x branch due to needing OneShot trait on
+# &mut Ads. Repo owner is unable to rep, so won't merge.
+# ads1x1x = { git = "https://github.com/David-OConnor/ads1x1x-rs", branch="oneshot-mut" }
+#ads1x1x = { git = "https://github.com/eldruin/ads1x1x-rs", branch="master" }
+ads1x1x = "0.2.1"  # ADC driver
+# todo: Old version of `nb` due to ads1x1x and EH using old version.
+# todo: Once EH version is released, update to 1.0.0. Both EH and ads1x1x
+# todo have updated their GH.
+ nb = "0.1.2"
+#nb = "1"
 
 filter = { version = "0.2.0", default-features = false }
 # `num-traits` is required by filter, but we need to disable features on it manually.
-# `libm` feature is for float rounding on no_std
+# The `libm` feature is for float rounding on no_std
 num-traits = { version = "0.2.11", default-features = false, features = ["libm"] }
 # `nalgebra` For Kalman filtering, as a requirement for `filter`.
 # Pinning to the version used by `filter`, to avoid conflicting Trait requirements.
 nalgebra = { version = "0.21.0", default-features = false }
-
-
-# todo temp
-rtt-target = { version = "0.2.2", features = ["cortex-m"] }
