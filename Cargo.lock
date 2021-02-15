@@ -3,7 +3,8 @@
 [[package]]
 name = "ads1x1x"
 version = "0.2.1"
-source = "git+https://github.com/David-OConnor/ads1x1x-rs?branch=oneshot-mut#5630ef2bcc12341fdbb6fb3c20fac3bcb8607102"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c9ccf501f61a710a83cfc5a6fb2df0013454c3215aeeeb20ebe4b21e2917501"
 dependencies = [
  "embedded-hal",
  "nb",
