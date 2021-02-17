@@ -213,22 +213,37 @@ impl<I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>, E> PhSensor
         }
     }
 
+    /// Create a new sensor with an ADC I2C address of 0x49.
     pub fn new_alt_addr(i2c: I2C, dt: f32) -> Self {
-        // `dt` is in seconds.
-        let adc = Ads1x1x::new_ads1115(i2c, SlaveAddr::new_vdd());
-        // Leave the default range of 2.048V; this is overkill (and reduces precision of)
-        // the pH sensor, but is needed for the temp sensor.
+        let mut result = Self::new(i2c, dt);
+        let i2c = result.free();
+        let adc = Some(Ads1x1x::new_ads1115(i2c, SlaveAddr::new_vdd()));
 
         Self {
-            adc: Some(adc),
-            addr: SlaveAddr::new_vdd(),
-            filter: filter_::create(dt, PH_STD),
-            dt,
-            last_meas: 7.,
-            cal_1: CalPt::new(0., 7., 23.),
-            cal_2: CalPt::new(0.17, 4., 23.),
-            cal_3: None,
+            adc,
+            ..result
         }
+    }
+
+    /// Set calibration to a sensible default for nitrate, with unit mg/L
+    pub fn cal_nitrate_default(&mut self) {
+        self.cal_1 = CalPt::new(0.25, -2. * 62_000., 23.);
+        self.cal_2 = CalPt::new(0.4, -5 * 62_000., 23.);
+        self.cal_3 = None;
+    }
+
+    /// Set calibration to a sensible default for phosphate, with unit mg/L
+    pub fn cal_phosphate_default(&mut self) {
+        self.cal_1 = CalPt::new(0.25, -2. * 62_000., 23.);
+        self.cal_2 = CalPt::new(0.4, -5 * 62_000., 23.);
+        self.cal_3 = None;
+    }
+
+    /// Set calibration to a sensible default for potassium, with unit mg/L
+    pub fn cal_potassium_default(&mut self) {
+        self.cal_1 = CalPt::new(0.25, -2. * 62_000., 23.);
+        self.cal_2 = CalPt::new(0.4, -5 * 62_000., 23.);
+        self.cal_3 = None;
     }
 
     /// Free the I2C device
