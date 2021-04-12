@@ -11,6 +11,7 @@ use embedded_hal::{
 
 #[allow(non_camel_case_types)]
 #[allow(dead_code)]
+#[repr(u8)]
 #[derive(Clone, Copy)]
 enum Register {
     // Register addresses and POR state. From Datasheet, Table 1.
@@ -49,9 +50,12 @@ pub enum ConversionMode {
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug)]
-/// Set One-shot, or leave cleared for continuous conversion mode.
+/// RM: When the conversion mode is set to “Normally Off”, write 1  to  this  bit
+/// to  start  a  conversion.  This  causes  a  single  resistance  conversion
+/// to  take  place.  The  conversion  is  triggered  when  CS  goes  high  after
+/// writing  a  1  to  this  bit.
 pub enum OneShot {
-    Continuous = 0,
+    Cleared = 0,
     OneShot = 1, // auto-clear
 }
 
@@ -70,27 +74,6 @@ pub enum FilterMode {
     Filter50Hz = 1,
 }
 
-// Fault detection cycle control. From Datasheet, Table 3.
-// Naming convention: FAULT_D3_D2.
-// todo: Fix these, and impl fault detection.
-// const FAULT_ZERO_ZERO = XXXX00XXb
-// const FAULT_ZERO_ONE = 100X010Xb
-// const FAULT_ONE_ZERO = 100X100Xb
-// const FAULT_ONE_ONE = 100X110Xb
-
-const R: u8 = 0 << 7;
-const W: u8 = 1 << 7;
-
-impl Register {
-    fn read_address(&self) -> u8 {
-        *self as u8 | R
-    }
-
-    fn write_address(&self) -> u8 {
-        *self as u8 | W
-    }
-}
-
 #[derive(Clone, Copy, Debug)]
 pub enum RtdType {
     Pt100,
@@ -103,7 +86,6 @@ pub struct Rtd<CS: OutputPin> {
     calibration: u32,
     type_: RtdType,
     wires: Wires,
-    // cal: CalPtRtd,
 }
 
 impl<CS: OutputPin> Rtd<CS> {
@@ -124,15 +106,20 @@ impl<CS: OutputPin> Rtd<CS> {
             calibration: ref_R * 100,
             type_,
             wires,
-            // cal: CalPtRtd::new(0., 100.),
         };
+
+        // todo: Set up for single conversions to save power
+        // todo: Ie bvias off, ConversionMode::NormallyOff,
+        // todo then write OneShot::OneShot.
 
         result
             .configure(
                 spi,
                 Vbias::On,
+                // Vbias::Off,
                 ConversionMode::Auto,
-                OneShot::OneShot,
+                // ConversionMode::NormallyOff,
+                OneShot::Cleared,
                 FilterMode::Filter60Hz,
             )
             .ok();
@@ -140,20 +127,20 @@ impl<CS: OutputPin> Rtd<CS> {
         result
     }
 
-    /// Appears to be required after a power cycle, or it will read 0.
-    pub fn re_init<SPI, E>(&mut self, spi: &mut SPI)
-    where
-        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
-    {
-        self.configure(
-            spi,
-            Vbias::On,
-            ConversionMode::Auto,
-            OneShot::OneShot,
-            FilterMode::Filter60Hz,
-        )
-        .ok();
-    }
+    // /// Appears to be required after a power cycle, or it will read 0.
+    // pub fn re_init<SPI, E>(&mut self, spi: &mut SPI)
+    // where
+    //     SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+    // {
+    //     self.configure(
+    //         spi,
+    //         Vbias::On,
+    //         ConversionMode::NormallyOff,
+    //         OneShot::Cleared,
+    //         FilterMode::Filter60Hz,
+    //     )
+    //     .ok();
+    // }
 
     /// Updates the devices configuration.
     ///
@@ -203,27 +190,30 @@ impl<CS: OutputPin> Rtd<CS> {
         SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
         self.cs.set_low().ok();
-        spi.write(&[reg.write_address(), val])?;
+        spi.write(&[reg as u8, val])?;
         self.cs.set_high().ok();
         Ok(())
     }
 
-    /// Set filter mode to 50Hz AC noise, eg in Europe. Defaults to 60Hz for US.
-    pub fn set_50hz<SPI, E>(&mut self, spi: &mut SPI) -> Result<(), E>
-    where
-        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
-    {
-        // todo: Don't overwrite the whole config!
-        self.configure(
-            spi,
-            Vbias::On,
-            ConversionMode::Auto,
-            OneShot::OneShot,
-            FilterMode::Filter50Hz,
-        )?;
-
-        Ok(())
-    }
+    // /// Set filter mode to 50Hz AC noise, eg in Europe. Defaults to 60Hz for US.
+    // pub fn set_50hz<SPI, E>(&mut self, spi: &mut SPI) -> Result<(), E>
+    // where
+    //     SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+    // {
+    //     // todo: Don't overwrite the whole config!
+    //     let existing_config = self.read_data(spi, Register::CONFIG)?;
+    //     self.write(spi, Register::CONFIG_W, conf)?;
+    //
+    //     self.configure(
+    //         spi,
+    //         Vbias::On,
+    //         ConversionMode::NormallyOff,
+    //         OneShot::Cleared,
+    //         FilterMode::Filter50Hz,
+    //     )?;
+    //
+    //     Ok(())
+    // }
 
     fn read_data<SPI, E>(&mut self, spi: &mut SPI, reg: Register) -> Result<u8, E>
     where
@@ -241,7 +231,7 @@ impl<CS: OutputPin> Rtd<CS> {
         let mut buffer: B = unsafe { mem::zeroed() };
         {
             let slice: &mut [u8] = &mut buffer;
-            slice[0] = reg.read_address();
+            slice[0] = reg as u8;
             self.cs.set_low().ok();
             spi.transfer(slice)?;
             self.cs.set_high().ok();
@@ -263,6 +253,16 @@ impl<CS: OutputPin> Rtd<CS> {
     where
         SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
+        // todo: Don't write the whole config!!
+        // todo: Come back to this when you're ready to fix WM's temp readings!!
+        // self.configure(
+        //     spi,
+        //     Vbias::On, // todo enable hre? Delay? Disable after??
+        //     ConversionMode::NormallyOff,
+        //     OneShot::OneShot,
+        //     FilterMode::Filter60Hz,
+        // )?;  // todo where to put this?
+
         let msb: u16 = self.read_data(spi, Register::RTD_MSB)? as u16;
         let lsb: u16 = self.read_data(spi, Register::RTD_LSB)? as u16;
 
@@ -297,13 +297,13 @@ impl<CS: OutputPin> Rtd<CS> {
         let status = self.read_data(spi, Register::CONFIG)?;
 
         let filter = status & (1 << 0) > 0;
-        let fault_status = status & (1 << (2 - 1)) > 0;
-        let fault_detb = status & (1 << (3 - 1)) > 0;
-        let fault_deta = status & (1 << (4 - 1)) > 0;
-        let wire = status & (1 << (5 - 1)) > 0;
-        let one_shot = status & (1 << (6 - 1)) > 0;
-        let conv_mode = status & (1 << (7 - 1)) > 0;
-        let vbias = status & (1 << (8 - 1)) > 0;
+        let fault_status = status & (1 << 1) > 0;
+        let fault_detb = status & (1 << 2) > 0;
+        let fault_deta = status & (1 << 3) > 0;
+        let wire = status & (1 << 4) > 0;
+        let one_shot = status & (1 << 5) > 0;
+        let conv_mode = status & (1 << 6) > 0;
+        let vbias = status & (1 << 7) > 0;
 
         Ok([
             vbias,

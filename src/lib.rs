@@ -84,7 +84,7 @@ use nb::block;
 use num_traits::float::FloatCore; // Required to take absolute value in `no_std`.
 
 mod filter_;
-mod rtd;
+pub mod rtd;
 mod storage;
 
 pub use rtd::{Rtd, RtdType, Wires};
@@ -219,30 +219,27 @@ impl<I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>, E> PhSensor
         let i2c = result.free();
         let adc = Some(Ads1x1x::new_ads1115(i2c, SlaveAddr::new_vdd()));
 
-        Self {
-            adc,
-            ..result
-        }
+        Self { adc, ..result }
     }
 
     /// Set calibration to a sensible default for nitrate, with unit mg/L
     pub fn cal_nitrate_default(&mut self) {
         self.cal_1 = CalPt::new(0.25, -2. * 62_000., 23.);
-        self.cal_2 = CalPt::new(0.4, -5 * 62_000., 23.);
+        self.cal_2 = CalPt::new(0.4, -5. * 62_000., 23.);
         self.cal_3 = None;
     }
 
     /// Set calibration to a sensible default for phosphate, with unit mg/L
     pub fn cal_phosphate_default(&mut self) {
         self.cal_1 = CalPt::new(0.25, -2. * 62_000., 23.);
-        self.cal_2 = CalPt::new(0.4, -5 * 62_000., 23.);
+        self.cal_2 = CalPt::new(0.4, -5. * 62_000., 23.);
         self.cal_3 = None;
     }
 
     /// Set calibration to a sensible default for potassium, with unit mg/L
     pub fn cal_potassium_default(&mut self) {
         self.cal_1 = CalPt::new(0.25, -2. * 62_000., 23.);
-        self.cal_2 = CalPt::new(0.4, -5 * 62_000., 23.);
+        self.cal_2 = CalPt::new(0.4, -5. * 62_000., 23.);
         self.cal_3 = None;
     }
 

@@ -5,6 +5,7 @@ use anyleaf::{Rtd, RtdType, Wires};
 use embedded_hal::blocking::delay::DelayMs;
 use linux_embedded_hal::{
     spidev::{SpiModeFlags, SpidevOptions},
+    sysfs_gpio::Direction,
     Delay, Pin, Spidev,
 };
 

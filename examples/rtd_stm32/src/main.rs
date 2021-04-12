@@ -3,6 +3,8 @@
 //! the pH using an output handler, and demonstrates how
 //! to calibrate.
 
+// todo: Redo using stm32-hal.
+
 #![no_main]
 #![no_std]
 

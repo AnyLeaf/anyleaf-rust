@@ -5,11 +5,10 @@ authors = ["Anyleaf <anyleaf@anyleaf.org>"]
 edition = "2018"
 
 [dependencies]
-cortex-m = "^0.6.2"
-cortex-m-rt = "^0.6.12"
-stm32f3xx-hal = { version = "^0.5.0", features=["stm32f303xc", "rt"] }
-f3 ="^0.6.1"
-embedded-hal = "^0.2.3"
+cortex-m = "^0.7.1"
+cortex-m-rt = "^0.6.13"
+stm32-hal2 = { version = "^0.1.0", features=["l4x3", "rt"] }
+embedded-hal = "^0.2.4"
 rtt-target = { version = "0.2.0", features = ["cortex-m"] }
 
 #anyleaf = "^0.1.7"
