@@ -95,6 +95,7 @@ impl<CS: OutputPin> Rtd<CS> {
     {
         cs.set_high().ok();
 
+        // todo: This assumes specific hardware ref resistors
         let ref_R = match type_ {
             RtdType::Pt100 => 300,
             RtdType::Pt1000 => 3_000,
@@ -120,6 +121,7 @@ impl<CS: OutputPin> Rtd<CS> {
                 ConversionMode::Auto,
                 // ConversionMode::NormallyOff,
                 OneShot::Cleared,
+                // OneShot::OneShot,
                 FilterMode::Filter60Hz,
             )
             .ok();
@@ -181,6 +183,12 @@ impl<CS: OutputPin> Rtd<CS> {
             | (wires << 4)
             | (filter_mode as u8);
 
+        // todo TS
+        // self.write(spi, Register::CONFIG_W, 0b00010001)?;
+        // self.write(spi, Register::CONFIG_W, 0b10000000)?;
+        // self.write(spi, Register::CONFIG_W, 0b11010000)?;
+        // self.write(spi, Register::CONFIG_W, 0b00001011)?;
+        // self.write(spi, Register::CONFIG_W, 0b00001111)?;
         self.write(spi, Register::CONFIG_W, conf)?;
         Ok(())
     }
@@ -194,26 +202,6 @@ impl<CS: OutputPin> Rtd<CS> {
         self.cs.set_high().ok();
         Ok(())
     }
-
-    // /// Set filter mode to 50Hz AC noise, eg in Europe. Defaults to 60Hz for US.
-    // pub fn set_50hz<SPI, E>(&mut self, spi: &mut SPI) -> Result<(), E>
-    // where
-    //     SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
-    // {
-    //     // todo: Don't overwrite the whole config!
-    //     let existing_config = self.read_data(spi, Register::CONFIG)?;
-    //     self.write(spi, Register::CONFIG_W, conf)?;
-    //
-    //     self.configure(
-    //         spi,
-    //         Vbias::On,
-    //         ConversionMode::NormallyOff,
-    //         OneShot::Cleared,
-    //         FilterMode::Filter50Hz,
-    //     )?;
-    //
-    //     Ok(())
-    // }
 
     fn read_data<SPI, E>(&mut self, spi: &mut SPI, reg: Register) -> Result<u8, E>
     where
@@ -274,7 +262,25 @@ impl<CS: OutputPin> Rtd<CS> {
     where
         SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
+
+        // todo: Put back this oneshot code once auto is working.
+
+        // Set up a one-shot conversion by enabling Vbias and OneShot.
+        // let existing_config = self.read_data(spi, Register::CONFIG)?;
+
+        // let mut conf = existing_config | (1 << 7); // Enable VBias
+        // self.write(spi, Register::CONFIG_W, conf)?;
+        // Wait 10.5 time constants + 1ms. (about 52ms)
+        // delay.delay_ms(60_u8);
+        // let conf = existing_config | (1 << 5); // Trigger a one-shot conversion.
+        // self.write(spi, Register::CONFIG_W, conf)?;
+
         let raw = self.read_raw(spi)?;
+
+        // Turn off Vbias
+        // let mut conf = existing_config & (0 << 7); // Enable VBias
+        // self.write(spi, Register::CONFIG_W, conf)?;
+
         Ok((((raw >> 1) as u32 * self.calibration) >> 15) as f32)
     }
 
@@ -296,14 +302,14 @@ impl<CS: OutputPin> Rtd<CS> {
     {
         let status = self.read_data(spi, Register::CONFIG)?;
 
-        let filter = status & (1 << 0) > 0;
-        let fault_status = status & (1 << 1) > 0;
-        let fault_detb = status & (1 << 2) > 0;
-        let fault_deta = status & (1 << 3) > 0;
-        let wire = status & (1 << 4) > 0;
-        let one_shot = status & (1 << 5) > 0;
-        let conv_mode = status & (1 << 6) > 0;
         let vbias = status & (1 << 7) > 0;
+        let conv_mode = status & (1 << 6) > 0;
+        let one_shot = status & (1 << 5) > 0;
+        let wire = status & (1 << 4) > 0;
+        let fault_deta = status & (1 << 3) > 0;
+        let fault_detb = status & (1 << 2) > 0;
+        let fault_status = status & (1 << 1) > 0;
+        let filter = status & (1 << 0) > 0;
 
         Ok([
             vbias,
@@ -324,12 +330,12 @@ impl<CS: OutputPin> Rtd<CS> {
     {
         let status = self.read_data(spi, Register::FAULT_STATUS)?;
 
-        let rtd_high = status & (1 << (8 - 1)) > 0;
-        let rtd_low = status & (1 << (7 - 1)) > 0;
-        let refin1 = status & (1 << (6 - 1)) > 0;
-        let refin2 = status & (1 << (5 - 1)) > 0;
-        let rtdin = status & (1 << (4 - 1)) > 0;
-        let overv = status & (1 << (3 - 1)) > 0;
+        let rtd_high = status & (1 << 7) > 0;
+        let rtd_low = status & (1 << 6) > 0;
+        let refin1 = status & (1 << 5) > 0;
+        let refin2 = status & (1 << 4) > 0;
+        let rtdin = status & (1 << 3) > 0;
+        let overv = status & (1 << 2) > 0;
 
         Ok([rtd_high, rtd_low, refin1, refin2, rtdin, overv])
     }
