@@ -29,8 +29,9 @@ fn main() {
     let mut delay = Delay {};
 
     loop {
-        println!("Temp: {}°C", rtd.read(&mut spi).unwrap());
-        println!("Resistance: {}Ω", rtd.read_resistance(&mut spi).unwrap());
+        println!("Temp: {}°C", rtd.read(&mut spi, &mut delay).unwrap());
+        println!("Resistance: {}Ω", rtd.read_resistance(&mut spi, &mut delay).unwrap());
+        println!("Configruation: {:?}", rtd.read_config(&mut spi).unwrap());
 
         delay.delay_ms(1_000_u16);
     }

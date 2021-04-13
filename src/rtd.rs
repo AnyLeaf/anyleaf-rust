@@ -5,7 +5,7 @@ use core::marker::Unsize;
 use core::mem;
 
 use embedded_hal::{
-    blocking::spi,
+    blocking::{delay::DelayMs, spi},
     digital::v2::{InputPin, OutputPin},
 };
 
@@ -109,19 +109,13 @@ impl<CS: OutputPin> Rtd<CS> {
             wires,
         };
 
-        // todo: Set up for single conversions to save power
-        // todo: Ie bvias off, ConversionMode::NormallyOff,
-        // todo then write OneShot::OneShot.
-
+        // Set up with vbias off, and in one-shot mode, to save power.
         result
             .configure(
                 spi,
-                Vbias::On,
-                // Vbias::Off,
-                ConversionMode::Auto,
-                // ConversionMode::NormallyOff,
+                Vbias::Off,
+                ConversionMode::NormallyOff,
                 OneShot::Cleared,
-                // OneShot::OneShot,
                 FilterMode::Filter60Hz,
             )
             .ok();
@@ -183,12 +177,6 @@ impl<CS: OutputPin> Rtd<CS> {
             | (wires << 4)
             | (filter_mode as u8);
 
-        // todo TS
-        // self.write(spi, Register::CONFIG_W, 0b00010001)?;
-        // self.write(spi, Register::CONFIG_W, 0b10000000)?;
-        // self.write(spi, Register::CONFIG_W, 0b11010000)?;
-        // self.write(spi, Register::CONFIG_W, 0b00001011)?;
-        // self.write(spi, Register::CONFIG_W, 0b00001111)?;
         self.write(spi, Register::CONFIG_W, conf)?;
         Ok(())
     }
@@ -237,59 +225,63 @@ impl<CS: OutputPin> Rtd<CS> {
     /// resistor (i.e. 2^15 - 1 would be the exact same resistance as the reference
     /// resistor). See manual for further information.
     /// The last bit specifies if the conversion was successful.
-    pub fn read_raw<SPI, E>(&mut self, spi: &mut SPI) -> Result<u16, E>
+    pub fn read_raw<SPI, E, D: DelayMs<u8>>(
+        &mut self,
+        spi: &mut SPI,
+        delay: &mut D,
+    ) -> Result<u16, E>
     where
         SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
-        // todo: Don't write the whole config!!
-        // todo: Come back to this when you're ready to fix WM's temp readings!!
-        // self.configure(
-        //     spi,
-        //     Vbias::On, // todo enable hre? Delay? Disable after??
-        //     ConversionMode::NormallyOff,
-        //     OneShot::OneShot,
-        //     FilterMode::Filter60Hz,
-        // )?;  // todo where to put this?
+        // Set up a one-shot conversion by enabling Vbias and OneShot.
+        // See the `1-Shot (D5)` section of the datasheet for details.
+        let existing_config = self.read_data(spi, Register::CONFIG)?;
+
+        let conf = existing_config | (1 << 7); // Enable VBias
+        self.write(spi, Register::CONFIG_W, conf)?;
+
+        // . (datasheet): Enable VBIAS and wait at least 10.5
+        // time constants of the input RC network plus an additional
+        // 1ms before initiating the conversion. Note that a single
+        // conversion requires approximately 52ms in 60Hz filter
+        // mode or 62.5ms in 50Hz filter mode to complete. 1-Shot
+        // is a self-clearing bit.
+        delay.delay_ms(60_u8);
+
+        // `When the conversion mode is set to “Normally Off”, write
+        // 1 to this bit to start a conversion.`
+        // Trigger a one-shot conversion.
+        self.write(spi, Register::CONFIG_W, conf | (1 << 5))?;
 
         let msb: u16 = self.read_data(spi, Register::RTD_MSB)? as u16;
         let lsb: u16 = self.read_data(spi, Register::RTD_LSB)? as u16;
+
+        // Turn off Vbias by writing the original config.
+        self.write(spi, Register::CONFIG_W, existing_config)?;
 
         Ok((msb << 8) | lsb)
     }
 
     /// Measure RTD resistance, in Ohms.
-    pub fn read_resistance<SPI, E>(&mut self, spi: &mut SPI) -> Result<f32, E>
+    pub fn read_resistance<SPI, E, D: DelayMs<u8>>(
+        &mut self,
+        spi: &mut SPI,
+        delay: &mut D,
+    ) -> Result<f32, E>
     where
         SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
-
-        // todo: Put back this oneshot code once auto is working.
-
-        // Set up a one-shot conversion by enabling Vbias and OneShot.
-        // let existing_config = self.read_data(spi, Register::CONFIG)?;
-
-        // let mut conf = existing_config | (1 << 7); // Enable VBias
-        // self.write(spi, Register::CONFIG_W, conf)?;
-        // Wait 10.5 time constants + 1ms. (about 52ms)
-        // delay.delay_ms(60_u8);
-        // let conf = existing_config | (1 << 5); // Trigger a one-shot conversion.
-        // self.write(spi, Register::CONFIG_W, conf)?;
-
-        let raw = self.read_raw(spi)?;
-
-        // Turn off Vbias
-        // let mut conf = existing_config & (0 << 7); // Enable VBias
-        // self.write(spi, Register::CONFIG_W, conf)?;
+        let raw = self.read_raw(spi, delay)?;
 
         Ok((((raw >> 1) as u32 * self.calibration) >> 15) as f32)
     }
 
     /// Measure temperature, in Celsius
-    pub fn read<SPI, E>(&mut self, spi: &mut SPI) -> Result<f32, E>
+    pub fn read<SPI, E, D: DelayMs<u8>>(&mut self, spi: &mut SPI, delay: &mut D) -> Result<f32, E>
     where
         SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
-        let resistance = self.read_resistance(spi)?;
+        let resistance = self.read_resistance(spi, delay)?;
         let temp = lookup_temperature(resistance as u16, self.type_);
 
         Ok(temp as f32 / 100.)
@@ -356,12 +348,16 @@ impl<CS: OutputPin> Rtd<CS> {
     /// You can perform calibration by putting the sensor in boiling (100 degrees
     /// Celcius) water and then measuring the raw value using `read_raw`. Calculate
     /// `calib` as `(13851 << 15) / raw >> 1`.
-    pub fn calibrate<SPI, E>(&mut self, spi: &mut SPI) -> Result<(), E>
+    pub fn calibrate<SPI, E, D: DelayMs<u8>>(
+        &mut self,
+        spi: &mut SPI,
+        delay: &mut D,
+    ) -> Result<(), E>
     where
         SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
     {
         // todo
-        let raw = self.read_raw(spi)?;
+        let raw = self.read_raw(spi, delay)?;
         self.calibration = ((13851 << 15) / (raw >> 1)) as u32;
 
         Ok(())
