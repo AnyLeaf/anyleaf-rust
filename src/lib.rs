@@ -63,16 +63,16 @@
 #![allow(non_snake_case, clippy::needless_doctest_main)]
 #![feature(unsize)] // Used by the `max31865` module.
 
-use ads1x1x::{
-    self,
-    channel::{DifferentialA0A1, SingleA2},
-    ic::{Ads1115, Resolution16Bit},
-    interface::I2cInterface,
-    Ads1x1x, SlaveAddr,
-};
+// use ads1x1x::{
+//     self,
+//     channel::{DifferentialA0A1, SingleA2},
+//     ic::{Ads1115, Resolution16Bit},
+//     interface::I2cInterface,
+//     Ads1x1x, SlaveAddr,
+// };
 use embedded_hal::{
     adc::OneShot,
-    blocking::i2c::{Read, Write, WriteRead},
+    blocking::i2c::{Write, WriteRead},
 };
 use filter::kalman::kalman_filter::KalmanFilter;
 
@@ -80,7 +80,7 @@ use nalgebra::{
     dimension::{U1, U2},
     Vector1,
 };
-use nb::block;
+// use nb::block;
 use num_traits::float::FloatCore; // Required to take absolute value in `no_std`.
 
 mod filter_;
@@ -96,13 +96,28 @@ const DISCRETE_ORP_JUMP_THRESH: f32 = 30.;
 const PH_STD: f32 = 0.1;
 const ORP_STD: f32 = 10.;
 
-pub type Adc<I> = Ads1x1x<
-    I2cInterface<I>,
-    Ads1115,
-    Resolution16Bit,
-    ads1x1x::mode::OneShot,
-    // todo: How do we do type for continuous variant?
->;
+const ADC_ADDR_1: u8 = 0x48;
+const ADC_ADDR_2: u8 = 0x49;
+const CFG_REG: u8 = 0x1;
+const CONV_REG: u8 = 0x0;
+
+// See ads1115 datasheet Section 9.6.3: Config Register. Start a differential conversion on channels
+// 0 and 1, With 2.048V full scale range, one-shot mode, no alert pin activity.
+
+// See ads1115 datasheet Section 9.6.3: Config Register. Start a differential conversion on channels
+// 0 and 1, With 2.048V full scale range, one-shot mode, no alert pin activity.
+const PH_ORP_CMD: u16 = 0b1000_0101_1000_0000;
+// Same as `PH_ORP_CM`, but with channel A2.
+const T_CMD: u16 = 0b1110_0101_1000_0000;
+// const PH_EC_CMD: u16 = 0b1000_0101_1000_0000;
+
+// pub type Adc<I> = Ads1x1x<
+//     I2cInterface<I>,
+//     Ads1115,
+//     Resolution16Bit,
+//     ads1x1x::mode::OneShot,
+//     // todo: How do we do type for continuous variant?
+// >;
 
 #[derive(Debug, Clone, Copy)]
 /// Keeps our calibration organized, so we track when to overwrite.
@@ -173,37 +188,21 @@ impl CalPtEc {
     }
 }
 
-pub struct PhSensor<I2C: Read<Error = E> + Write<Error = E> + WriteRead<Error = E>, E> {
-    pub adc: Option<
-        Ads1x1x<
-            ads1x1x::interface::I2cInterface<I2C>,
-            Ads1115,
-            Resolution16Bit,
-            ads1x1x::mode::OneShot,
-        >, // todo continuous support
-    >,
-    // We store address, since `unfree` needs it to recreate the ADC.
-    addr: SlaveAddr,
+pub struct PhSensor {
+    pub addr: u8,
     pub filter: KalmanFilter<f32, U2, U1, U1>,
-    dt: f32, // used for manually resetting the filter (`filterpy` has a reset method, `filter-rs` doesn't).
+    pub dt: f32, // used for manually resetting the filter (`filterpy` has a reset method, `filter-rs` doesn't).
     last_meas: f32, // to let discrete jumps bypass the filter.
-    cal_1: CalPt,
-    cal_2: CalPt,
-    cal_3: Option<CalPt>,
+    pub cal_1: CalPt,
+    pub cal_2: CalPt,
+    pub cal_3: Option<CalPt>,
 }
 
-impl<I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>, E> PhSensor<I2C, E> {
-    pub fn new(i2c: I2C, dt: f32) -> Self {
+impl PhSensor {
+    pub fn new(dt: f32) -> Self {
         // `dt` is in seconds.
-        let adc = Ads1x1x::new_ads1115(i2c, SlaveAddr::default());
-        // Leave the default range of 2.048V; this is overkill (and reduces precision of)
-        // the pH sensor, but is needed for the temp sensor.
-
-        // adc.set_full_scale_range(ads1x1x::FullScaleRange::Within6_144V);
-
         Self {
-            adc: Some(adc),
-            addr: SlaveAddr::default(),
+            addr: ADC_ADDR_1,
             filter: filter_::create(dt, PH_STD),
             dt,
             last_meas: 7.,
@@ -214,12 +213,13 @@ impl<I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>, E> PhSensor
     }
 
     /// Create a new sensor with an ADC I2C address of 0x49.
-    pub fn new_alt_addr(i2c: I2C, dt: f32) -> Self {
-        let mut result = Self::new(i2c, dt);
-        let i2c = result.free();
-        let adc = Some(Ads1x1x::new_ads1115(i2c, SlaveAddr::new_vdd()));
+    pub fn new_alt_addr(dt: f32) -> Self {
+        let mut result = Self::new(dt);
 
-        Self { adc, ..result }
+        Self {
+            addr: ADC_ADDR_2,
+            ..result
+        }
     }
 
     /// Set calibration to a sensible default for nitrate, with unit mg/L
@@ -243,27 +243,18 @@ impl<I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>, E> PhSensor
         self.cal_3 = None;
     }
 
-    /// Free the I2C device
-    pub fn free(&mut self) -> I2C {
-        self.adc
-            .take()
-            .expect("I2C already freed")
-            .destroy_ads1115()
-    }
-
-    /// Re-assign the I2C device (eg after free)
-    pub fn unfree(&mut self, i2c: I2C) {
-        self.adc = Some(Ads1x1x::new_ads1115(i2c, self.addr));
-    }
-
     /// Make a prediction using the Kalman filter. Not generally used directly.
     pub fn predict(&mut self) {
         self.filter.predict(None, None, None, None)
     }
 
     /// Update the Kalman filter with a pH reading. Not generally used directly.
-    pub fn update(&mut self, t: TempSource) -> Result<(), ads1x1x::Error<E>> {
-        let pH = self.read_raw(t)?;
+    pub fn update<I2C, E>(&mut self, t: TempSource, i2c: &mut I2C)
+    where
+        I2C: Write<Error = E> + WriteRead<Error = E>,
+    {
+        let pH = self.read_raw(t, i2c);
+
         let z = Vector1::new(pH);
 
         if (pH - self.last_meas).abs() > DISCRETE_PH_JUMP_THRESH {
@@ -271,40 +262,38 @@ impl<I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>, E> PhSensor
         }
 
         self.filter.update(&z, None, None);
-
-        Ok(())
     }
 
     /// Take a pH reading, using the Kalman filter. This reduces sensor
     /// noise, and provides a more accurate reading.
-    pub fn read(&mut self, t: TempSource) -> Result<f32, ads1x1x::Error<E>> {
+    pub fn read<I2C, E>(&mut self, t: TempSource, i2c: &mut I2C) -> f32
+    where
+        I2C: Write<Error = E> + WriteRead<Error = E>,
+    {
         self.predict();
-        self.update(t)?;
+        self.update(t, i2c);
         // self.filter.x is mean, variance. We only care about the mean
-        Ok(self.filter.x[0])
+        self.filter.x[0]
     }
 
     /// Take a pH reading, without using the Kalman filter
     // todo: find the right error type for nb/ads111x
     // todo: Error type: is this right? Read:Error instead?
-    pub fn read_raw(&mut self, t: TempSource) -> Result<f32, ads1x1x::Error<E>> {
+    pub fn read_raw<I2C, E>(&mut self, t: TempSource, i2c: &mut I2C) -> f32
+    where
+        I2C: Write<Error = E> + WriteRead<Error = E>,
+    {
         let T = match t {
-            TempSource::OnBoard => temp_from_voltage(voltage_from_adc(block!(self
-                .adc
-                .as_mut()
-                .expect("Measurement after I2C freed")
-                .read(&mut SingleA2))?)),
+            TempSource::OnBoard => {
+                temp_from_voltage(voltage_from_adc(take_reading(self.addr, T_CMD, i2c)))
+            }
             TempSource::OffBoard(t_) => t_,
         };
 
         // We don't re-use `self.read_voltage` here due to i16/f32 type issues.
         let pH = ph_from_voltage(
             // todo: This is hard crashing WM if adc is missing.
-            voltage_from_adc(block!(self
-                .adc
-                .as_mut()
-                .expect("Measurement after I2C freed")
-                .read(&mut DifferentialA0A1))?),
+            voltage_from_adc(take_reading(self.addr, PH_ORP_CMD, i2c)),
             // 2.,
             T,
             &self.cal_1,
@@ -313,48 +302,44 @@ impl<I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>, E> PhSensor
         );
 
         self.last_meas = pH;
-        Ok(pH)
+        pH
     }
 
     /// Useful for getting calibration data
-    pub fn read_voltage(&mut self) -> Result<f32, ads1x1x::Error<E>> {
-        Ok(voltage_from_adc(block!(self
-            .adc
-            .as_mut()
-            .expect("Measurement after I2C freed")
-            .read(&mut DifferentialA0A1))?))
+    pub fn read_voltage<I2C, E>(&mut self, i2c: &mut I2C) -> f32
+    where
+        I2C: Write<Error = E> + WriteRead<Error = E>,
+    {
+        voltage_from_adc(take_reading(self.addr, PH_ORP_CMD, i2c))
     }
 
     /// Useful for getting calibration data
-    pub fn read_temp(&mut self) -> Result<f32, ads1x1x::Error<E>> {
-        Ok(temp_from_voltage(voltage_from_adc(block!(self
-            .adc
-            .as_mut()
-            .expect("Measurement after I2C freed")
-            .read(&mut SingleA2))?)))
+    pub fn read_temp<I2C, E>(&mut self, i2c: &mut I2C) -> f32
+    where
+        I2C: Write<Error = E> + WriteRead<Error = E>,
+    {
+        temp_from_voltage(voltage_from_adc(take_reading(self.addr, T_CMD, i2c)))
     }
 
     /// Calibrate by measuring voltage and temp at a given pH. Set the
     /// calibration, and return (Voltage, Temp).
-    pub fn calibrate(
+    pub fn calibrate<I2C, E>(
         &mut self,
         slot: CalSlot,
         pH: f32,
         t: TempSource,
-    ) -> Result<(f32, f32), ads1x1x::Error<E>> {
+        i2c: &mut I2C,
+    ) -> (f32, f32)
+    where
+        I2C: Write<Error = E> + WriteRead<Error = E>,
+    {
         let T = match t {
-            TempSource::OnBoard => temp_from_voltage(voltage_from_adc(block!(self
-                .adc
-                .as_mut()
-                .expect("Measurement after I2C freed")
-                .read(&mut SingleA2))?)),
+            TempSource::OnBoard => {
+                temp_from_voltage(voltage_from_adc(take_reading(self.addr, T_CMD, i2c)))
+            }
             TempSource::OffBoard(t_) => t_,
         };
-        let V = voltage_from_adc(block!(self
-            .adc
-            .as_mut()
-            .expect("Measurement after I2C freed")
-            .read(&mut DifferentialA0A1))?);
+        let V = voltage_from_adc(take_reading(self.addr, PH_ORP_CMD, i2c));
         let pt = CalPt::new(V, pH, T);
 
         match slot {
@@ -362,7 +347,7 @@ impl<I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>, E> PhSensor
             CalSlot::Two => self.cal_2 = pt,
             CalSlot::Three => self.cal_3 = Some(pt),
         }
-        Ok((V, T))
+        (V, T)
     }
 
     pub fn calibrate_all(&mut self, pt0: CalPt, pt1: CalPt, pt2: Option<CalPt>) {
@@ -378,32 +363,34 @@ impl<I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>, E> PhSensor
     }
 }
 
-pub struct OrpSensor<I2C: Read<Error = E> + Write<Error = E> + WriteRead<Error = E>, E> {
+pub struct OrpSensor {
     // These sensors operate in a similar, minus the conversion from
     // voltage to measurement, not compensating for temp, and using only 1 cal pt.
     // The adc will be empty if I2C has been freed.
-    pub adc: Option<
-        Ads1x1x<
-            ads1x1x::interface::I2cInterface<I2C>,
-            Ads1115,
-            Resolution16Bit,
-            ads1x1x::mode::OneShot,
-        >, // todo continuous support
-    >,
-    addr: SlaveAddr,
+    // pub adc: Option<
+    //     Ads1x1x<
+    //         ads1x1x::interface::I2cInterface<I2C>,
+    //         Ads1115,
+    //         Resolution16Bit,
+    //         ads1x1x::mode::OneShot,
+    //     >, // todo continuous support
+    // >,
+    // addr: SlaveAddr,
+    pub addr: u8,
     pub filter: KalmanFilter<f32, U2, U1, U1>,
-    dt: f32, // used for manually resetting the filter (`filterpy` has a reset method, `filter-rs` doesn't).
+    pub dt: f32, // used for manually resetting the filter (`filterpy` has a reset method, `filter-rs` doesn't).
     last_meas: f32, // to let discrete jumps bypass the filter.
-    cal: CalPtOrp,
+    pub cal: CalPtOrp,
 }
 
-impl<I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>, E> OrpSensor<I2C, E> {
-    pub fn new(i2c: I2C, dt: f32) -> Self {
-        let adc = Ads1x1x::new_ads1115(i2c, SlaveAddr::default());
+impl OrpSensor {
+    pub fn new(dt: f32) -> Self {
+        // let adc = Ads1x1x::new_ads1115(i2c, SlaveAddr::default());
 
         Self {
-            adc: Some(adc),
-            addr: SlaveAddr::default(),
+            // adc: Some(adc),
+            // addr: SlaveAddr::default(),
+            addr: ADC_ADDR_1,
             filter: filter_::create(dt, ORP_STD),
             dt,
             last_meas: 0.,
@@ -414,35 +401,13 @@ impl<I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>, E> OrpSenso
     /// This isn't intended to be used by the standalone module, but by the water monitor,
     /// which connects the ORP sensor to the second ADC, although it still uses differential
     /// input A0, A1.
-    pub fn new_alt_addr(i2c: I2C, dt: f32) -> Self {
-        let adc = Ads1x1x::new_ads1115(i2c, SlaveAddr::new_vdd());
+    pub fn new_alt_addr(dt: f32) -> Self {
+        let mut result = Self::new(dt);
 
         Self {
-            adc: Some(adc),
-            addr: SlaveAddr::new_vdd(),
-            filter: filter_::create(dt, ORP_STD),
-            dt,
-            last_meas: 0.,
-            cal: CalPtOrp::new(0.4, 400.),
+            addr: ADC_ADDR_2,
+            ..result
         }
-    }
-
-    /// Free the I2C device
-    pub fn free(&mut self) -> I2C {
-        self.adc
-            .take()
-            .expect("I2C already freed")
-            .destroy_ads1115()
-    }
-
-    /// Re-assign the I2C device (eg after free)
-    pub fn unfree(&mut self, i2c: I2C) {
-        self.adc = Some(Ads1x1x::new_ads1115(i2c, self.addr));
-    }
-
-    /// Re-assign the I2C device (eg after free)
-    pub fn unfree_alt_addr(&mut self, i2c: I2C) {
-        self.adc = Some(Ads1x1x::new_ads1115(i2c, SlaveAddr::new_vdd()));
     }
 
     /// Make a prediction using the Kalman filter. Not generally used directly.
@@ -451,8 +416,11 @@ impl<I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>, E> OrpSenso
     }
 
     /// Update the Kalman filter with an ORP reading. Not generally used directly.
-    pub fn update(&mut self) -> Result<(), ads1x1x::Error<E>> {
-        let ORP = self.read_raw()?;
+    pub fn update<I2C, E>(&mut self, i2c: &mut I2C)
+    where
+        I2C: Write<Error = E> + WriteRead<Error = E>,
+    {
+        let ORP = self.read_raw(i2c);
         let z = Vector1::new(ORP);
 
         if (ORP - self.last_meas).abs() > DISCRETE_ORP_JUMP_THRESH {
@@ -460,79 +428,61 @@ impl<I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>, E> OrpSenso
         }
 
         self.filter.update(&z, None, None);
-
-        Ok(())
     }
 
     /// Take an ORP reading, using the Kalman filter. This reduces sensor
     /// noise, and provides a more accurate reading.
-    pub fn read(&mut self) -> Result<f32, ads1x1x::Error<E>> {
+    pub fn read<I2C, E>(&mut self, i2c: &mut I2C) -> f32
+    where
+        I2C: Write<Error = E> + WriteRead<Error = E>,
+    {
         self.predict();
-        self.update()?;
+        self.update(i2c);
         // self.filter.x is mean, variance. We only care about the mean
-        Ok(self.filter.x[0])
+        self.filter.x[0]
     }
 
     /// Take an ORP reading, without using the Kalman filter
-    pub fn read_raw(&mut self) -> Result<f32, ads1x1x::Error<E>> {
+    pub fn read_raw<I2C, E>(&mut self, i2c: &mut I2C) -> f32
+    where
+        I2C: Write<Error = E> + WriteRead<Error = E>,
+    {
         // We don't re-use `self.read_voltage`, due to i16 vs f32 typing issues.
+
         let orp = orp_from_voltage(
-            voltage_from_adc(block!(self
-                .adc
-                .as_mut()
-                .expect("Measurement after I2C freed")
-                .read(&mut DifferentialA0A1))?),
+            voltage_from_adc(take_reading(self.addr, PH_ORP_CMD, i2c)),
             &self.cal,
         );
 
         self.last_meas = orp;
-        Ok(orp)
+        orp
     }
 
     /// Useful for getting calibration data
-    pub fn read_voltage(&mut self) -> Result<f32, ads1x1x::Error<E>> {
-        Ok(voltage_from_adc(block!(self
-            .adc
-            .as_mut()
-            .expect("Measurement after I2C freed")
-            .read(&mut DifferentialA0A1))?))
+    pub fn read_voltage<I2C, E>(&mut self, i2c: &mut I2C) -> f32
+    where
+        I2C: Write<Error = E> + WriteRead<Error = E>,
+    {
+        voltage_from_adc(take_reading(self.addr, PH_ORP_CMD, i2c))
     }
 
     /// Useful for getting calibration data
-    pub fn read_temp(&mut self) -> Result<f32, ads1x1x::Error<E>> {
-        Ok(temp_from_voltage(voltage_from_adc(block!(self
-            .adc
-            .as_mut()
-            .expect("Measurement after I2C freed")
-            .read(&mut SingleA2))?)))
+    pub fn read_temp<I2C, E>(&mut self, i2c: &mut I2C) -> f32
+    where
+        I2C: Write<Error = E> + WriteRead<Error = E>,
+    {
+        temp_from_voltage(voltage_from_adc(take_reading(self.addr, T_CMD, i2c)))
     }
-
-    //    /// Not support by the pH module. Used for reading temperature when an ec
-    //    /// circuit is wired to A3.
-    //    #[doc(hidden)]
-    //    pub fn read_ec(&mut self, t: TempSource) -> Result<f32, ads1x1x::Error<E>> {
-    //        let T = 0.; // todo
-    //
-    //        Ok(ec_from_voltage(
-    //            voltage_from_adc(block!(self
-    //                .adc
-    //                .as_mut()
-    //                .expect("Measurement after I2C freed")
-    //                .read(&mut SingleA3))?),
-    //            T,
-    //        ))
-    //    }
 
     /// Calibrate by measuring voltage at a given ORP. Set the
     /// calibration, and return Voltage.
-    pub fn calibrate(&mut self, ORP: f32) -> Result<f32, ads1x1x::Error<E>> {
-        let V = voltage_from_adc(block!(self
-            .adc
-            .as_mut()
-            .expect("Measurement after I2C freed")
-            .read(&mut DifferentialA0A1))?);
+    pub fn calibrate<I2C, E>(&mut self, ORP: f32, i2c: &mut I2C) -> f32
+    where
+        I2C: Write<Error = E> + WriteRead<Error = E>,
+    {
+        let V = voltage_from_adc(take_reading(self.addr, PH_ORP_CMD, i2c));
         self.cal = CalPtOrp::new(V, ORP);
-        Ok(V)
+        V
     }
 
     pub fn calibrate_all(&mut self, pt: CalPtOrp) {
@@ -547,8 +497,10 @@ impl<I2C: WriteRead<Error = E> + Write<Error = E> + Read<Error = E>, E> OrpSenso
 /// We use SensorError on results from the `WaterMonitor` struct.
 #[derive(Copy, Clone, Debug)]
 pub enum SensorError {
-    Bus,          // eg an I2C or SPI error
-    NotConnected, // todo
+    Bus,
+    // eg an I2C or SPI error
+    NotConnected,
+    // todo
     BadMeasurement,
 }
 
@@ -636,4 +588,22 @@ fn orp_from_voltage(V: f32, cal: &CalPtOrp) -> f32 {
 /// Instruments-TI-LM61BIM3-NOPB_C132073.pdf
 pub fn temp_from_voltage(V: f32) -> f32 {
     100. * V - 60.
+}
+
+// Take a measurement from the ADC, using the I2C connection.
+pub fn take_reading<I2C, E>(addr: u8, cmd: u16, i2c: &mut I2C) -> i16
+where
+    I2C: Write<Error = E> + WriteRead<Error = E>,
+{
+    let mut result_buf: [u8; 2] = [0, 0];
+
+    // Set up the cfg, and command a one-shot reading. Note that we
+    // pass the command as 2 bytes.
+    i2c.write(addr, &[CFG_REG, (cmd >> 8) as u8, cmd as u8])
+        .ok();
+
+    // Request the measurement.
+    i2c.write_read(addr, &[CONV_REG], &mut result_buf).ok();
+
+    i16::from_be_bytes([result_buf[0], result_buf[1]])
 }

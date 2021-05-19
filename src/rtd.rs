@@ -253,8 +253,8 @@ impl<CS: OutputPin> Rtd<CS> {
         // Trigger a one-shot conversion.
         self.write(spi, Register::CONFIG_W, conf | (1 << 5))?;
 
-        let msb: u16 = self.read_data(spi, Register::RTD_MSB)? as u16;
-        let lsb: u16 = self.read_data(spi, Register::RTD_LSB)? as u16;
+        let msb = self.read_data(spi, Register::RTD_MSB)? as u16;
+        let lsb = self.read_data(spi, Register::RTD_LSB)? as u16;
 
         // Turn off Vbias by writing the original config.
         self.write(spi, Register::CONFIG_W, existing_config)?;
