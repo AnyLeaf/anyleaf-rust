@@ -567,9 +567,6 @@ where
     i2c.write(addr, &[CFG_REG, (cmd >> 8) as u8, cmd as u8])
         .ok();
 
-    // Request the measurement.
-    i2c.write_read(addr, &[CONV_REG], &mut result_buf).ok();
-
     // Wait until the conversion is complete.
     let mut converting = true;
     let mut buf = [0, 0];
@@ -578,6 +575,9 @@ where
         // First of 16 cfg reg bits is 0 while converting, 1 when ready. (when reading)
         converting = buf[0] >> 7 == 0;
     }
+
+    // Read the result from the conversion register.
+    i2c.write_read(addr, &[CONV_REG], &mut result_buf).ok();
 
     i16::from_be_bytes([result_buf[0], result_buf[1]])
 }
