@@ -63,17 +63,7 @@
 #![allow(non_snake_case, clippy::needless_doctest_main)]
 #![feature(unsize)] // Used by the `max31865` module.
 
-// use ads1x1x::{
-//     self,
-//     channel::{DifferentialA0A1, SingleA2},
-//     ic::{Ads1115, Resolution16Bit},
-//     interface::I2cInterface,
-//     Ads1x1x, SlaveAddr,
-// };
-use embedded_hal::{
-    adc::OneShot,
-    blocking::i2c::{Write, WriteRead},
-};
+use embedded_hal::blocking::i2c::{Write, WriteRead};
 use filter::kalman::kalman_filter::KalmanFilter;
 
 use nalgebra::{
@@ -103,21 +93,9 @@ const CONV_REG: u8 = 0x0;
 
 // See ads1115 datasheet Section 9.6.3: Config Register. Start a differential conversion on channels
 // 0 and 1, With 2.048V full scale range, one-shot mode, no alert pin activity.
-
-// See ads1115 datasheet Section 9.6.3: Config Register. Start a differential conversion on channels
-// 0 and 1, With 2.048V full scale range, one-shot mode, no alert pin activity.
 const PH_ORP_CMD: u16 = 0b1000_0101_1000_0000;
 // Same as `PH_ORP_CM`, but with channel A2.
 const T_CMD: u16 = 0b1110_0101_1000_0000;
-// const PH_EC_CMD: u16 = 0b1000_0101_1000_0000;
-
-// pub type Adc<I> = Ads1x1x<
-//     I2cInterface<I>,
-//     Ads1115,
-//     Resolution16Bit,
-//     ads1x1x::mode::OneShot,
-//     // todo: How do we do type for continuous variant?
-// >;
 
 #[derive(Debug, Clone, Copy)]
 /// Keeps our calibration organized, so we track when to overwrite.
@@ -177,6 +155,7 @@ impl CalPtT {
 #[derive(Debug, Clone, Copy)]
 /// Data for a single ORP (or other ion measurement) calibration point.
 pub struct CalPtEc {
+    // todo: this struct is DRY with ecfirmware.
     pub reading: f32, // reading
     pub ec: f32,      // in μS/cm
     pub T: f32,       // in Celsius
@@ -214,11 +193,9 @@ impl PhSensor {
 
     /// Create a new sensor with an ADC I2C address of 0x49.
     pub fn new_alt_addr(dt: f32) -> Self {
-        let mut result = Self::new(dt);
-
         Self {
             addr: ADC_ADDR_2,
-            ..result
+            ..Self::new(dt)
         }
     }
 
@@ -366,16 +343,6 @@ impl PhSensor {
 pub struct OrpSensor {
     // These sensors operate in a similar, minus the conversion from
     // voltage to measurement, not compensating for temp, and using only 1 cal pt.
-    // The adc will be empty if I2C has been freed.
-    // pub adc: Option<
-    //     Ads1x1x<
-    //         ads1x1x::interface::I2cInterface<I2C>,
-    //         Ads1115,
-    //         Resolution16Bit,
-    //         ads1x1x::mode::OneShot,
-    //     >, // todo continuous support
-    // >,
-    // addr: SlaveAddr,
     pub addr: u8,
     pub filter: KalmanFilter<f32, U2, U1, U1>,
     pub dt: f32, // used for manually resetting the filter (`filterpy` has a reset method, `filter-rs` doesn't).
@@ -402,11 +369,9 @@ impl OrpSensor {
     /// which connects the ORP sensor to the second ADC, although it still uses differential
     /// input A0, A1.
     pub fn new_alt_addr(dt: f32) -> Self {
-        let mut result = Self::new(dt);
-
         Self {
             addr: ADC_ADDR_2,
-            ..result
+            ..Self::new(dt)
         }
     }
 
@@ -590,20 +555,29 @@ pub fn temp_from_voltage(V: f32) -> f32 {
     100. * V - 60.
 }
 
-// Take a measurement from the ADC, using the I2C connection.
-pub fn take_reading<I2C, E>(addr: u8, cmd: u16, i2c: &mut I2C) -> i16
+/// Take a measurement from an external ADC, using the I2C connection.
+fn take_reading<I2C, E>(addr: u8, cmd: u16, i2c: &mut I2C) -> i16
 where
     I2C: Write<Error = E> + WriteRead<Error = E>,
 {
     let mut result_buf: [u8; 2] = [0, 0];
 
     // Set up the cfg, and command a one-shot reading. Note that we
-    // pass the command as 2 bytes.
+    // pass the 16-bit i2c command as 2 bytes.
     i2c.write(addr, &[CFG_REG, (cmd >> 8) as u8, cmd as u8])
         .ok();
 
     // Request the measurement.
     i2c.write_read(addr, &[CONV_REG], &mut result_buf).ok();
+
+    // Wait until the conversion is complete.
+    let mut converting = true;
+    let mut buf = [0, 0];
+    while converting {
+        i2c.write_read(addr, &[CFG_REG], &mut buf).ok();
+        // First of 16 cfg reg bits is 0 while converting, 1 when ready. (when reading)
+        converting = buf[0] >> 7 == 0;
+    }
 
     i16::from_be_bytes([result_buf[0], result_buf[1]])
 }

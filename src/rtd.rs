@@ -5,7 +5,10 @@ use core::marker::Unsize;
 use core::mem;
 
 use embedded_hal::{
-    blocking::{delay::DelayMs, spi},
+    blocking::{
+        delay::DelayMs,
+        spi::{Transfer, Write},
+    },
     digital::v2::{InputPin, OutputPin},
 };
 
@@ -91,7 +94,7 @@ pub struct Rtd<CS: OutputPin> {
 impl<CS: OutputPin> Rtd<CS> {
     pub fn new<SPI, E>(spi: &mut SPI, mut cs: CS, type_: RtdType, wires: Wires) -> Self
     where
-        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+        SPI: Write<u8, Error = E> + Transfer<u8, Error = E>,
     {
         cs.set_high().ok();
 
@@ -126,7 +129,7 @@ impl<CS: OutputPin> Rtd<CS> {
     // /// Appears to be required after a power cycle, or it will read 0.
     // pub fn re_init<SPI, E>(&mut self, spi: &mut SPI)
     // where
-    //     SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+    //     SPI: Write<u8, Error = E> + Transfer<u8, Error = E>,
     // {
     //     self.configure(
     //         spi,
@@ -163,7 +166,7 @@ impl<CS: OutputPin> Rtd<CS> {
         filter_mode: FilterMode,
     ) -> Result<(), E>
     where
-        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+        SPI: Write<u8, Error = E> + Transfer<u8, Error = E>,
     {
         let wires = match self.wires {
             Wires::Two => 0,
@@ -183,7 +186,7 @@ impl<CS: OutputPin> Rtd<CS> {
 
     fn write<SPI, E>(&mut self, spi: &mut SPI, reg: Register, val: u8) -> Result<(), E>
     where
-        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+        SPI: Write<u8, Error = E> + Transfer<u8, Error = E>,
     {
         self.cs.set_low().ok();
         spi.write(&[reg as u8, val])?;
@@ -193,7 +196,7 @@ impl<CS: OutputPin> Rtd<CS> {
 
     fn read_data<SPI, E>(&mut self, spi: &mut SPI, reg: Register) -> Result<u8, E>
     where
-        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+        SPI: Write<u8, Error = E> + Transfer<u8, Error = E>,
     {
         let buffer: [u8; 2] = self.read_many(spi, reg)?;
         Ok(buffer[1])
@@ -202,7 +205,7 @@ impl<CS: OutputPin> Rtd<CS> {
     fn read_many<B, SPI, E>(&mut self, spi: &mut SPI, reg: Register) -> Result<B, E>
     where
         B: Unsize<[u8]>,
-        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+        SPI: Write<u8, Error = E> + Transfer<u8, Error = E>,
     {
         let mut buffer: B = unsafe { mem::zeroed() };
         {
@@ -231,7 +234,7 @@ impl<CS: OutputPin> Rtd<CS> {
         delay: &mut D,
     ) -> Result<u16, E>
     where
-        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+        SPI: Write<u8, Error = E> + Transfer<u8, Error = E>,
     {
         // Set up a one-shot conversion by enabling Vbias and OneShot.
         // See the `1-Shot (D5)` section of the datasheet for details.
@@ -269,7 +272,7 @@ impl<CS: OutputPin> Rtd<CS> {
         delay: &mut D,
     ) -> Result<f32, E>
     where
-        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+        SPI: Write<u8, Error = E> + Transfer<u8, Error = E>,
     {
         let raw = self.read_raw(spi, delay)?;
 
@@ -279,7 +282,7 @@ impl<CS: OutputPin> Rtd<CS> {
     /// Measure temperature, in Celsius
     pub fn read<SPI, E, D: DelayMs<u8>>(&mut self, spi: &mut SPI, delay: &mut D) -> Result<f32, E>
     where
-        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+        SPI: Write<u8, Error = E> + Transfer<u8, Error = E>,
     {
         let resistance = self.read_resistance(spi, delay)?;
         let temp = lookup_temperature(resistance as u16, self.type_);
@@ -290,7 +293,7 @@ impl<CS: OutputPin> Rtd<CS> {
     /// Return the configuration register data.
     pub fn read_config<SPI, E>(&mut self, spi: &mut SPI) -> Result<[bool; 8], E>
     where
-        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+        SPI: Write<u8, Error = E> + Transfer<u8, Error = E>,
     {
         let status = self.read_data(spi, Register::CONFIG)?;
 
@@ -318,7 +321,7 @@ impl<CS: OutputPin> Rtd<CS> {
     /// Find the fault status. See Table 7.
     pub fn fault_status<SPI, E>(&mut self, spi: &mut SPI) -> Result<[bool; 6], E>
     where
-        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+        SPI: Write<u8, Error = E> + Transfer<u8, Error = E>,
     {
         let status = self.read_data(spi, Register::FAULT_STATUS)?;
 
@@ -354,7 +357,7 @@ impl<CS: OutputPin> Rtd<CS> {
         delay: &mut D,
     ) -> Result<(), E>
     where
-        SPI: spi::Write<u8, Error = E> + spi::Transfer<u8, Error = E>,
+        SPI: Write<u8, Error = E> + Transfer<u8, Error = E>,
     {
         // todo
         let raw = self.read_raw(spi, delay)?;
