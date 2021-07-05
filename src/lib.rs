@@ -526,7 +526,7 @@ fn ph_from_voltage(V: f32, T: f32, cal_0: &CalPt, cal_1: &CalPt, cal_2: &Option<
         // Model as a quadratic Lagrangian polynomial, to compensate for slight nonlinearity.
         Some(c2) => {
             let result = lg((cal_0.V, cal_0.pH), (cal_1.V, cal_1.pH), (c2.V, c2.pH), V);
-            (result + T_comp) * V
+            result + T_comp * V
         }
         // Model as a line
         None => {

@@ -18,19 +18,19 @@ use embedded_hal::{
 #[derive(Clone, Copy)]
 enum Register {
     // Register addresses and POR state. From Datasheet, Table 1.
-    CONFIG = 0x00,
-    CONFIG_W = 0x80,
-    RTD_MSB = 0x01,
-    RTD_LSB = 0x02,
-    HIGH_FAULT_THRESHOLD_MSB = 0x03,
-    HIGH_FAULT_THRESHOLD_LSB = 0x04,
-    LOW_FAULT_THRESHOLD_MSB = 0x05,
-    LOW_FAULT_THRESHOLD_LSB = 0x06,
-    HIGH_FAULT_THRESHOLD_MSB_W = 0x83,
-    HIGH_FAULT_THRESHOLD_LSB_W = 0x84,
-    LOW_FAULT_THRESHOLD_MSB_W = 0x85,
-    LOW_FAULT_THRESHOLD_LSB_W = 0x86,
-    FAULT_STATUS = 0x07,
+    Config = 0x00,
+    ConfigW = 0x80,
+    RtdMsb = 0x01,
+    RtdLsb = 0x02,
+    HighFaultThresholdMsb = 0x03,
+    HighFaultThresholdLsb = 0x04,
+    LowFaultThresholdMsb = 0x05,
+    LowFaultThresholdLsb = 0x06,
+    HighFaultThresholdMsbW = 0x83,
+    HighFaultThresholdLsbW = 0x84,
+    LowFaultThresholdMsbW = 0x85,
+    LowFaultThresholdLsbW = 0x86,
+    FaultStatus = 0x07,
 }
 
 // See Table2. Configuration Register Definition for info on these enums.
@@ -180,7 +180,7 @@ impl<CS: OutputPin> Rtd<CS> {
             | (wires << 4)
             | (filter_mode as u8);
 
-        self.write(spi, Register::CONFIG_W, conf)?;
+        self.write(spi, Register::ConfigW, conf)?;
         Ok(())
     }
 
@@ -238,10 +238,10 @@ impl<CS: OutputPin> Rtd<CS> {
     {
         // Set up a one-shot conversion by enabling Vbias and OneShot.
         // See the `1-Shot (D5)` section of the datasheet for details.
-        let existing_config = self.read_data(spi, Register::CONFIG)?;
+        let existing_config = self.read_data(spi, Register::Config)?;
 
         let conf = existing_config | (1 << 7); // Enable VBias
-        self.write(spi, Register::CONFIG_W, conf)?;
+        self.write(spi, Register::ConfigW, conf)?;
 
         // . (datasheet): Enable VBIAS and wait at least 10.5
         // time constants of the input RC network plus an additional
@@ -249,18 +249,19 @@ impl<CS: OutputPin> Rtd<CS> {
         // conversion requires approximately 52ms in 60Hz filter
         // mode or 62.5ms in 50Hz filter mode to complete. 1-Shot
         // is a self-clearing bit.
+        // todo: Is this wasting power on the WM?
         delay.delay_ms(60_u8);
 
         // `When the conversion mode is set to “Normally Off”, write
         // 1 to this bit to start a conversion.`
         // Trigger a one-shot conversion.
-        self.write(spi, Register::CONFIG_W, conf | (1 << 5))?;
+        self.write(spi, Register::ConfigW, conf | (1 << 5))?;
 
-        let msb = self.read_data(spi, Register::RTD_MSB)? as u16;
-        let lsb = self.read_data(spi, Register::RTD_LSB)? as u16;
+        let msb = self.read_data(spi, Register::RtdMsb)? as u16;
+        let lsb = self.read_data(spi, Register::RtdLsb)? as u16;
 
         // Turn off Vbias by writing the original config.
-        self.write(spi, Register::CONFIG_W, existing_config)?;
+        self.write(spi, Register::ConfigW, existing_config)?;
 
         Ok((msb << 8) | lsb)
     }
@@ -295,7 +296,7 @@ impl<CS: OutputPin> Rtd<CS> {
     where
         SPI: Write<u8, Error = E> + Transfer<u8, Error = E>,
     {
-        let status = self.read_data(spi, Register::CONFIG)?;
+        let status = self.read_data(spi, Register::Config)?;
 
         let vbias = status & (1 << 7) > 0;
         let conv_mode = status & (1 << 6) > 0;
@@ -323,7 +324,7 @@ impl<CS: OutputPin> Rtd<CS> {
     where
         SPI: Write<u8, Error = E> + Transfer<u8, Error = E>,
     {
-        let status = self.read_data(spi, Register::FAULT_STATUS)?;
+        let status = self.read_data(spi, Register::FaultStatus)?;
 
         let rtd_high = status & (1 << 7) > 0;
         let rtd_low = status & (1 << 6) > 0;
@@ -427,7 +428,7 @@ fn lookup_temperature(val: u16, _type: RtdType) -> u32 {
     let mut first = &(0, 10000);
     let mut second = &(1000, 10390);
     let mut iterator = LOOKUP_TABLE.iter();
-    while let Some(a) = iterator.next() {
+    for a in &mut iterator {
         first = second;
         second = &a;
         if a.1 > val {
