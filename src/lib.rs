@@ -64,16 +64,16 @@
 #![feature(unsize)] // Used by the `max31865` module.
 
 use embedded_hal::blocking::i2c::{Write, WriteRead};
-use filter::kalman::kalman_filter::KalmanFilter;
-
-use nalgebra::{
-    dimension::{U1, U2},
-    Vector1,
-};
+// use filter::kalman::kalman_filter::KalmanFilter;
+//
+// use nalgebra::{
+//     dimension::{U1, U2},
+//     Vector1,
+// };
 // use nb::block;
 use num_traits::float::FloatCore; // Required to take absolute value in `no_std`.
 
-mod filter_;
+// mod filter_;
 pub mod rtd;
 mod storage;
 
@@ -169,7 +169,7 @@ impl CalPtEc {
 
 pub struct PhSensor {
     pub addr: u8,
-    pub filter: KalmanFilter<f32, U2, U1, U1>,
+    // pub filter: KalmanFilter<f32, U2, U1, U1>,
     pub dt: f32, // used for manually resetting the filter (`filterpy` has a reset method, `filter-rs` doesn't).
     last_meas: f32, // to let discrete jumps bypass the filter.
     pub cal_1: CalPt,
@@ -182,7 +182,7 @@ impl PhSensor {
         // `dt` is in seconds.
         Self {
             addr: ADC_ADDR_1,
-            filter: filter_::create(dt, PH_STD),
+            // filter: filter_::create(dt, PH_STD),
             dt,
             last_meas: 7.,
             cal_1: CalPt::new(0., 7., 23.),
@@ -220,43 +220,41 @@ impl PhSensor {
         self.cal_3 = None;
     }
 
-    /// Make a prediction using the Kalman filter. Not generally used directly.
-    pub fn predict(&mut self) {
-        self.filter.predict(None, None, None, None)
-    }
+    // /// Make a prediction using the Kalman filter. Not generally used directly.
+    // pub fn predict(&mut self) {
+    //     self.filter.predict(None, None, None, None)
+    // }
+    //
+    // /// Update the Kalman filter with a pH reading. Not generally used directly.
+    // pub fn update<I2C, E>(&mut self, t: TempSource, i2c: &mut I2C)
+    // where
+    //     I2C: Write<Error = E> + WriteRead<Error = E>,
+    // {
+    //     let pH = self.read_raw(t, i2c);
+    //
+    //     let z = Vector1::new(pH);
+    //
+    //     if (pH - self.last_meas).abs() > DISCRETE_PH_JUMP_THRESH {
+    //         self.filter = filter_::create(self.dt, PH_STD) // reset the filter.
+    //     }
+    //
+    //     self.filter.update(&z, None, None);
+    // }
 
-    /// Update the Kalman filter with a pH reading. Not generally used directly.
-    pub fn update<I2C, E>(&mut self, t: TempSource, i2c: &mut I2C)
-    where
-        I2C: Write<Error = E> + WriteRead<Error = E>,
-    {
-        let pH = self.read_raw(t, i2c);
+    // /// Take a pH reading, using the Kalman filter. This reduces sensor
+    // /// noise, and provides a more accurate reading.
+    // pub fn read<I2C, E>(&mut self, t: TempSource, i2c: &mut I2C) -> f32
+    // where
+    //     I2C: Write<Error = E> + WriteRead<Error = E>,
+    // {
+    //     self.predict();
+    //     self.update(t, i2c);
+    //     // self.filter.x is mean, variance. We only care about the mean
+    //     self.filter.x[0]
+    // }
 
-        let z = Vector1::new(pH);
-
-        if (pH - self.last_meas).abs() > DISCRETE_PH_JUMP_THRESH {
-            self.filter = filter_::create(self.dt, PH_STD) // reset the filter.
-        }
-
-        self.filter.update(&z, None, None);
-    }
-
-    /// Take a pH reading, using the Kalman filter. This reduces sensor
-    /// noise, and provides a more accurate reading.
+    /// Take a pH reading
     pub fn read<I2C, E>(&mut self, t: TempSource, i2c: &mut I2C) -> f32
-    where
-        I2C: Write<Error = E> + WriteRead<Error = E>,
-    {
-        self.predict();
-        self.update(t, i2c);
-        // self.filter.x is mean, variance. We only care about the mean
-        self.filter.x[0]
-    }
-
-    /// Take a pH reading, without using the Kalman filter
-    // todo: find the right error type for nb/ads111x
-    // todo: Error type: is this right? Read:Error instead?
-    pub fn read_raw<I2C, E>(&mut self, t: TempSource, i2c: &mut I2C) -> f32
     where
         I2C: Write<Error = E> + WriteRead<Error = E>,
     {
@@ -344,7 +342,7 @@ pub struct OrpSensor {
     // These sensors operate in a similar, minus the conversion from
     // voltage to measurement, not compensating for temp, and using only 1 cal pt.
     pub addr: u8,
-    pub filter: KalmanFilter<f32, U2, U1, U1>,
+    // pub filter: KalmanFilter<f32, U2, U1, U1>,
     pub dt: f32, // used for manually resetting the filter (`filterpy` has a reset method, `filter-rs` doesn't).
     last_meas: f32, // to let discrete jumps bypass the filter.
     pub cal: CalPtOrp,
@@ -352,13 +350,9 @@ pub struct OrpSensor {
 
 impl OrpSensor {
     pub fn new(dt: f32) -> Self {
-        // let adc = Ads1x1x::new_ads1115(i2c, SlaveAddr::default());
-
         Self {
-            // adc: Some(adc),
-            // addr: SlaveAddr::default(),
             addr: ADC_ADDR_1,
-            filter: filter_::create(dt, ORP_STD),
+            // filter: filter_::create(dt, ORP_STD),
             dt,
             last_meas: 0.,
             cal: CalPtOrp::new(0.4, 400.),
@@ -375,40 +369,40 @@ impl OrpSensor {
         }
     }
 
-    /// Make a prediction using the Kalman filter. Not generally used directly.
-    pub fn predict(&mut self) {
-        self.filter.predict(None, None, None, None)
-    }
+    // /// Make a prediction using the Kalman filter. Not generally used directly.
+    // pub fn predict(&mut self) {
+    //     self.filter.predict(None, None, None, None)
+    // }
+    //
+    // /// Update the Kalman filter with an ORP reading. Not generally used directly.
+    // pub fn update<I2C, E>(&mut self, i2c: &mut I2C)
+    // where
+    //     I2C: Write<Error = E> + WriteRead<Error = E>,
+    // {
+    //     let ORP = self.read_raw(i2c);
+    //     let z = Vector1::new(ORP);
+    //
+    //     if (ORP - self.last_meas).abs() > DISCRETE_ORP_JUMP_THRESH {
+    //         self.filter = filter_::create(self.dt, ORP_STD) // reset the filter.
+    //     }
+    //
+    //     self.filter.update(&z, None, None);
+    // }
 
-    /// Update the Kalman filter with an ORP reading. Not generally used directly.
-    pub fn update<I2C, E>(&mut self, i2c: &mut I2C)
-    where
-        I2C: Write<Error = E> + WriteRead<Error = E>,
-    {
-        let ORP = self.read_raw(i2c);
-        let z = Vector1::new(ORP);
-
-        if (ORP - self.last_meas).abs() > DISCRETE_ORP_JUMP_THRESH {
-            self.filter = filter_::create(self.dt, ORP_STD) // reset the filter.
-        }
-
-        self.filter.update(&z, None, None);
-    }
-
-    /// Take an ORP reading, using the Kalman filter. This reduces sensor
-    /// noise, and provides a more accurate reading.
+    // /// Take an ORP reading, using the Kalman filter. This reduces sensor
+    // /// noise, and provides a more accurate reading.
+    // pub fn read<I2C, E>(&mut self, i2c: &mut I2C) -> f32
+    // where
+    //     I2C: Write<Error = E> + WriteRead<Error = E>,
+    // {
+    //     self.predict();
+    //     self.update(i2c);
+    //     // self.filter.x is mean, variance. We only care about the mean
+    //     self.filter.x[0]
+    // }
+    //
+    /// Take an ORP reading.
     pub fn read<I2C, E>(&mut self, i2c: &mut I2C) -> f32
-    where
-        I2C: Write<Error = E> + WriteRead<Error = E>,
-    {
-        self.predict();
-        self.update(i2c);
-        // self.filter.x is mean, variance. We only care about the mean
-        self.filter.x[0]
-    }
-
-    /// Take an ORP reading, without using the Kalman filter
-    pub fn read_raw<I2C, E>(&mut self, i2c: &mut I2C) -> f32
     where
         I2C: Write<Error = E> + WriteRead<Error = E>,
     {

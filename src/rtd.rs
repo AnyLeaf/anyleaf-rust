@@ -249,8 +249,8 @@ impl<CS: OutputPin> Rtd<CS> {
         // conversion requires approximately 52ms in 60Hz filter
         // mode or 62.5ms in 50Hz filter mode to complete. 1-Shot
         // is a self-clearing bit.
-        // todo: Is this wasting power on the WM?
-        delay.delay_ms(60_u8);
+        // todo: is this delay causing trouble?
+        delay.delay_ms(60);
 
         // `When the conversion mode is set to “Normally Off”, write
         // 1 to this bit to start a conversion.`
