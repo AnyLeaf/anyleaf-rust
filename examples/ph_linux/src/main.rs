@@ -7,8 +7,7 @@ use anyleaf::{PhSensor, CalPt, CalSlot, TempSource};
 
 fn main() {
     let i2c = I2cdev::new("/dev/i2c-1").unwrap();
-    let dt = 1.; // Time between measurements, in seconds
-    let mut ph_sensor = PhSensor::new(i2c, dt);
+    let mut ph_sensor = PhSensor::new(i2c);
 
     // 2 or 3 pt calibration both give acceptable results.
     // Calibrate with known values. (voltage, pH, temp in °C).
@@ -35,6 +34,6 @@ fn main() {
         let pH = ph_sensor.read(TempSource::OnBoard).unwrap();
         println!("pH: {}", pH);
 
-        delay.delay_ms(dt as u16 * 1000);
+        delay.delay_ms(1000);
     }
 }

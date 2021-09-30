@@ -1,6 +1,6 @@
 [package]
 name = "anyleaf"
-version = "1.0.0"
+version = "1.0.1"
 authors = ["Anyleaf <david.alan.oconnor@gmail.com>"]
 edition = "2018"
 description = "Driver for AnyLeaf sensors"

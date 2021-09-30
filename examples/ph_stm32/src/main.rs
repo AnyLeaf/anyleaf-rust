@@ -35,8 +35,7 @@ fn main() -> ! {
 
     let i2c = I2c::i2c1(dp.I2C1, (scl, sda), 100.khz(), clocks, &mut rcc.apb1);
 
-    let dt = 1.; // Time between measurements, in seconds
-    let mut ph_sensor = PhSensor::new(i2c, dt);
+    let mut ph_sensor = PhSensor::new(i2c);
 
     ph_sensor.calibrate_all(
         CalPt::new(0., 7., 25.), CalPt::new(0.17, 4., 25.), Some(CalPt::new(-0.17, 10., 25.))
@@ -48,7 +47,7 @@ fn main() -> ! {
         let pH = ph_sensor.read(TempSource::OnBoard).unwrap();
         rprintln!("pH: {}", pH);
 
-        delay.delay_ms(dt as u16 * 1000);
+        delay.delay_ms(1000);
     }
 }
 

@@ -26,8 +26,7 @@
 //!
 //!fn main() {
 //!    let i2c = I2cdev::new("/dev/i2c-1").unwrap();
-//!    let dt = 1.; // Time between measurements, in seconds
-//!    let mut ph_sensor = PhSensor::new(i2c, dt);
+//!    let mut ph_sensor = PhSensor::new(i2c);
 //!
 //!    // 2 or 3 pt calibration both give acceptable results.
 //!    // Calibrate with known values. (voltage, pH, temp in °C).
@@ -54,7 +53,7 @@
 //!        let pH = ph_sensor.read(TempSource::OnBoard).unwrap();
 //!        println!("pH: {}", pH);
 //!
-//!        delay.delay_ms(dt as u16 * 1000);
+//!        delay.delay_ms(1000);
 //!    }
 //!}
 //! ```
@@ -160,21 +159,15 @@ impl CalPtEc {
 
 pub struct PhSensor {
     pub addr: u8,
-    pub dt: f32, // used for manually resetting the filter (`filterpy` has a reset method, `filter-rs` doesn't).
-    // last_meas: f32, // to let discrete jumps bypass the filter.
     pub cal_1: CalPt,
     pub cal_2: CalPt,
     pub cal_3: Option<CalPt>,
 }
 
 impl PhSensor {
-    pub fn new(dt: f32) -> Self {
-        // `dt` is in seconds.
+    pub fn new() -> Self {
         Self {
             addr: ADC_ADDR_1,
-            // filter: filter_::create(dt, PH_STD),
-            dt,
-            // last_meas: 7.,
             cal_1: CalPt::new(0., 7., 23.),
             cal_2: CalPt::new(0.17, 4., 23.),
             cal_3: None,
@@ -182,10 +175,10 @@ impl PhSensor {
     }
 
     /// Create a new sensor with an ADC I2C address of 0x49.
-    pub fn new_alt_addr(dt: f32) -> Self {
+    pub fn new_alt_addr() -> Self {
         Self {
             addr: ADC_ADDR_2,
-            ..Self::new(dt)
+            ..Self::new()
         }
     }
 
@@ -233,7 +226,6 @@ impl PhSensor {
             &self.cal_3,
         );
 
-        // self.last_meas = pH;
         pH
     }
 
@@ -299,18 +291,13 @@ pub struct OrpSensor {
     // These sensors operate in a similar, minus the conversion from
     // voltage to measurement, not compensating for temp, and using only 1 cal pt.
     pub addr: u8,
-    pub dt: f32, // used for manually resetting the filter (`filterpy` has a reset method, `filter-rs` doesn't).
-    // last_meas: f32, // to let discrete jumps bypass the filter.
     pub cal: CalPtOrp,
 }
 
 impl OrpSensor {
-    pub fn new(dt: f32) -> Self {
+    pub fn new() -> Self {
         Self {
             addr: ADC_ADDR_1,
-            // filter: filter_::create(dt, ORP_STD),
-            dt,
-            // last_meas: 0.,
             cal: CalPtOrp::new(0.4, 400.),
         }
     }
@@ -318,10 +305,10 @@ impl OrpSensor {
     /// This isn't intended to be used by the standalone module, but by the water monitor,
     /// which connects the ORP sensor to the second ADC, although it still uses differential
     /// input A0, A1.
-    pub fn new_alt_addr(dt: f32) -> Self {
+    pub fn new_alt_addr() -> Self {
         Self {
             addr: ADC_ADDR_2,
-            ..Self::new(dt)
+            ..Self::new()
         }
     }
 
@@ -337,7 +324,6 @@ impl OrpSensor {
             &self.cal,
         );
 
-        // self.last_meas = orp;
         orp
     }
 
