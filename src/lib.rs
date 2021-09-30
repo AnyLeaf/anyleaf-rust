@@ -65,7 +65,6 @@
 
 use embedded_hal::blocking::i2c::{Write, WriteRead};
 
-// mod filter_;
 pub mod rtd;
 mod storage;
 
