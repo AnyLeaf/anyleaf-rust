@@ -162,7 +162,7 @@ impl CalPtEc {
 pub struct PhSensor {
     pub addr: u8,
     pub dt: f32, // used for manually resetting the filter (`filterpy` has a reset method, `filter-rs` doesn't).
-    last_meas: f32, // to let discrete jumps bypass the filter.
+    // last_meas: f32, // to let discrete jumps bypass the filter.
     pub cal_1: CalPt,
     pub cal_2: CalPt,
     pub cal_3: Option<CalPt>,
@@ -175,7 +175,7 @@ impl PhSensor {
             addr: ADC_ADDR_1,
             // filter: filter_::create(dt, PH_STD),
             dt,
-            last_meas: 7.,
+            // last_meas: 7.,
             cal_1: CalPt::new(0., 7., 23.),
             cal_2: CalPt::new(0.17, 4., 23.),
             cal_3: None,
@@ -234,7 +234,7 @@ impl PhSensor {
             &self.cal_3,
         );
 
-        self.last_meas = pH;
+        // self.last_meas = pH;
         pH
     }
 
@@ -301,7 +301,7 @@ pub struct OrpSensor {
     // voltage to measurement, not compensating for temp, and using only 1 cal pt.
     pub addr: u8,
     pub dt: f32, // used for manually resetting the filter (`filterpy` has a reset method, `filter-rs` doesn't).
-    last_meas: f32, // to let discrete jumps bypass the filter.
+    // last_meas: f32, // to let discrete jumps bypass the filter.
     pub cal: CalPtOrp,
 }
 
@@ -311,7 +311,7 @@ impl OrpSensor {
             addr: ADC_ADDR_1,
             // filter: filter_::create(dt, ORP_STD),
             dt,
-            last_meas: 0.,
+            // last_meas: 0.,
             cal: CalPtOrp::new(0.4, 400.),
         }
     }
@@ -338,7 +338,7 @@ impl OrpSensor {
             &self.cal,
         );
 
-        self.last_meas = orp;
+        // self.last_meas = orp;
         orp
     }
 
@@ -474,7 +474,7 @@ pub fn temp_from_voltage(V: f32) -> f32 {
     100. * V - 60.
 }
 
-/// Take a measurement from an external ADC, using the I2C connection.
+/// Take a measurement from an external ADS1115 ADC, using the I2C peripheral.
 fn take_reading<I2C, E>(addr: u8, cmd: u16, i2c: &mut I2C) -> i16
 where
     I2C: Write<Error = E> + WriteRead<Error = E>,
@@ -498,5 +498,6 @@ where
     // Read the result from the conversion register.
     i2c.write_read(addr, &[CONV_REG], &mut result_buf).ok();
 
+    // Convert the 2 8-bit integers from the result into a single 16-bit signed integer.
     i16::from_be_bytes([result_buf[0], result_buf[1]])
 }

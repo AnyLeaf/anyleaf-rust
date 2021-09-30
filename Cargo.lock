@@ -4,7 +4,7 @@ version = 3
 
 [[package]]
 name = "anyleaf"
-version = "0.1.7"
+version = "1.0.0"
 dependencies = [
  "embedded-hal",
 ]
