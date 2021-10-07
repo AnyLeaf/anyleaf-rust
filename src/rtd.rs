@@ -1,7 +1,6 @@
 //! Supports the Max31865. Based on [rudihorn's max31865 lib](https://github.com/rudihorn/max31865),
 //! with modifications like support for Pt1000, and borrowing SPI instead of owning the bus.
 
-use core::marker::Unsize;
 use core::mem;
 
 use embedded_hal::{
@@ -202,12 +201,11 @@ impl<CS: OutputPin> Rtd<CS> {
         Ok(buffer[1])
     }
 
-    fn read_many<B, SPI, E>(&mut self, spi: &mut SPI, reg: Register) -> Result<B, E>
+    fn read_many<SPI, E>(&mut self, spi: &mut SPI, reg: Register) -> Result<[u8; 2], E>
     where
-        B: Unsize<[u8]>,
         SPI: Write<u8, Error = E> + Transfer<u8, Error = E>,
     {
-        let mut buffer: B = unsafe { mem::zeroed() };
+        let mut buffer: [u8; 2] = unsafe { mem::zeroed() };
         {
             let slice: &mut [u8] = &mut buffer;
             slice[0] = reg as u8;

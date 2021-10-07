@@ -60,7 +60,6 @@
 
 #![no_std]
 #![allow(non_snake_case, clippy::needless_doctest_main)]
-#![feature(unsize)] // Used by the `max31865` module.
 
 use embedded_hal::blocking::i2c::{Write, WriteRead};
 
